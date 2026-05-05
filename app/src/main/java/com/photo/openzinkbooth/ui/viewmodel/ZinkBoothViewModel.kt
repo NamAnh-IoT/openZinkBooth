@@ -1,0 +1,576 @@
+/*
+ * openZinkBooth
+ * Copyright (C) 2026 olie.xdev <olie.xdeveloper@googlemail.com>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package com.photo.openzinkbooth.ui.viewmodel
+
+import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.camera.core.impl.utils.ContextUtil.getApplication
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.photo.openzinkbooth.BuildConfig
+import com.photo.openzinkbooth.core.ble.SprocketPrinter
+import com.photo.openzinkbooth.core.ble.SprocketState
+import com.photo.openzinkbooth.core.database.FrameEntry
+import com.photo.openzinkbooth.core.database.FrameRepository
+import com.photo.openzinkbooth.core.database.SettingsRepository
+import com.photo.openzinkbooth.core.utils.LogManager
+import com.photo.openzinkbooth.core.utils.PhotoSaver
+import com.photo.openzinkbooth.ui.components.applyFilterForPrint
+import com.photo.openzinkbooth.ui.components.applyFrameForPrint
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import java.util.UUID
+
+class ZinkBoothViewModel(application: Application) : AndroidViewModel(application) {
+
+    val printer  = SprocketPrinter(application)
+    private val settings = SettingsRepository(application)
+    private val frameRepo = FrameRepository(application)
+
+    private val _state = MutableStateFlow(ZinkUiState())
+    val state: StateFlow<ZinkUiState> = _state.asStateFlow()
+
+    // Devices discovered during a manual scan – cleared when scan stops.
+    private val _manualScanDevices = MutableStateFlow<List<ManualScanDevice>>(emptyList())
+    val manualScanDevices: StateFlow<List<ManualScanDevice>> = _manualScanDevices.asStateFlow()
+
+    private var countdownJob: Job? = null
+    private var printQueueJob: Job? = null
+    private var errorResetJob: Job? = null
+
+    init {
+        // 1. Load persisted settings
+        viewModelScope.launch {
+            settings.settings.collect { s ->
+                _state.update {
+                    it.copy(
+                        dynamicColor        = s.dynamicColor,
+                        useFrontCamera      = s.useFrontCamera,
+                        flashEnabled        = s.flashEnabled,
+                        shutterSoundEnabled = s.shutterSoundEnabled,
+                        storageUri          = s.storageUri,
+                        timerSeconds        = s.timerSeconds,
+                        paperCount          = s.paperCount,
+                        selectedFilter      = FilterType.entries
+                            .firstOrNull { f -> f.name == s.selectedFilter }
+                            ?: FilterType.ORIGINAL,
+                        selectedFrame       = FrameType.entries
+                            .firstOrNull { f -> f.name == s.selectedFrame }
+                            ?: FrameType.NONE,
+                        // Restore last known printer name so the UI shows it before connect
+                        printerModelName    = s.pairedPrinterName ?: "",
+                    )
+                }
+            }
+        }
+
+        // 2. Mirror SprocketPrinter.state → ZinkUiState
+        viewModelScope.launch {
+            printer.state.collect { s ->
+                when (s) {
+                    is SprocketState.Disconnected ->
+                        _state.update {
+                            it.copy(
+                                printerConnectionState = PrinterConnectionState.DISCONNECTED,
+                                batteryLevel           = null,
+                            )
+                        }
+
+                    is SprocketState.Scanning ->
+                        _state.update {
+                            it.copy(printerConnectionState = PrinterConnectionState.SCANNING)
+                        }
+
+                    is SprocketState.Connecting ->
+                        _state.update {
+                            it.copy(printerConnectionState = PrinterConnectionState.CONNECTING)
+                        }
+
+                    is SprocketState.NotFound ->
+                        _state.update {
+                            it.copy(printerConnectionState = PrinterConnectionState.NOT_FOUND)
+                        }
+
+                    is SprocketState.Ready -> {
+                        _state.update {
+                            it.copy(
+                                printerConnectionState = PrinterConnectionState.READY,
+                                printerModelName       = s.model.displayName,
+                                printerPrintWidth      = s.model.width,
+                                printerPrintHeight     = s.model.height,
+                                printerError           = null,
+                            )
+                        }
+                        printer.connectedAddress?.let { address ->
+                            viewModelScope.launch {
+                                settings.savePairedPrinter(address, s.model.displayName)
+                            }
+                        }
+                        probeStatusAfterConnect()
+                    }
+
+                    is SprocketState.Printing ->
+                        _state.update {
+                            it.copy(
+                                printerConnectionState = PrinterConnectionState.READY,
+                                currentPrintProgress   = s.progressPercent,
+                            )
+                        }
+
+                    is SprocketState.Error -> {
+                        _state.update {
+                            it.copy(
+                                printerConnectionState = PrinterConnectionState.ERROR,
+                                printerError           = s.message,
+                            )
+                        }
+                        errorResetJob?.cancel()
+                        errorResetJob = viewModelScope.launch {
+                            delay(4_000)
+                            _state.update {
+                                it.copy(
+                                    printerConnectionState = PrinterConnectionState.DISCONNECTED,
+                                    printerError           = null,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. In debug mode: forward BLE log lines to LogManager
+        if (BuildConfig.DEBUG) {
+            viewModelScope.launch {
+                var lastSize = 0
+                printer.rxLog.collect { lines ->
+                    lines.drop(lastSize).forEach { line -> LogManager.d("BLE", line) }
+                    lastSize = lines.size
+                }
+            }
+        }
+
+        // 4. BT permission + enabled check is deferred to MainActivity which calls
+        //    onPermissionsResult() after the runtime permission request completes.
+        //    We just set DISCONNECTED so the UI has a valid initial state.
+
+        // 5. Load frame configuration
+        viewModelScope.launch {
+            frameRepo.frames.collect { entries ->
+                _state.update { it.copy(frameEntries = entries) }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Printer – probe after connect
+    // ---------------------------------------------------------------------------
+    private fun probeStatusAfterConnect() {
+        viewModelScope.launch {
+            val snapshot = printer.sendProbe() ?: return@launch
+            _state.update {
+                it.copy(
+                    batteryLevel = snapshot.batteryLevel,
+                    paperEmpty   = snapshot.printStatus ==
+                            com.photo.openzinkbooth.core.ble.PrintStatus.OUT_OF_PAPER,
+                )
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Navigation
+    // ---------------------------------------------------------------------------
+    fun navigateTo(screen: Screen) =
+        _state.update { it.copy(screen = screen, drawerOpen = false) }
+
+    fun openDrawer()  = _state.update { it.copy(drawerOpen = true)  }
+    fun closeDrawer() = _state.update { it.copy(drawerOpen = false) }
+
+    fun navigateBack() {
+        _state.update { s ->
+            when {
+                // PRINTER, FRAME_MANAGER and PRINTER_CONFIG are sub-pages of SETTINGS
+                s.screen == Screen.PRINTER ||
+                        s.screen == Screen.FRAME_MANAGER ||
+                        s.screen == Screen.PRINTER_CONFIG ->
+                    s.copy(screen = Screen.SETTINGS)
+                s.screen != Screen.CAMERA ->
+                    s.copy(screen = Screen.CAMERA, drawerOpen = false, previewFromPicker = false)
+                else -> s
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Camera
+    // ---------------------------------------------------------------------------
+    fun setTimer(seconds: Int) {
+        _state.update { it.copy(timerSeconds = seconds) }
+        viewModelScope.launch { settings.setTimer(seconds) }
+    }
+
+    fun onCapturePressed(takePicture: () -> Unit) {
+        val timer = _state.value.timerSeconds
+        if (timer == 0) { takePicture(); return }
+        countdownJob?.cancel()
+        countdownJob = viewModelScope.launch {
+            for (i in timer downTo 1) {
+                _state.update { it.copy(countdown = i) }
+                delay(1_000)
+            }
+            _state.update { it.copy(countdown = null) }
+            takePicture()
+        }
+    }
+
+    fun cancelCountdown() {
+        countdownJob?.cancel()
+        _state.update { it.copy(countdown = null) }
+    }
+
+    fun onPhotoCaptured(bitmap: Bitmap) {
+        _state.update {
+            it.copy(
+                capturedPhoto      = bitmap,
+                screen             = Screen.PREVIEW,
+                previewFromPicker  = false,
+                // Keep last filter/frame selection across captures
+            )
+        }
+
+        // Save original (unfiltered) photo only when user has set a storage location
+        val storageUri = _state.value.storageUri ?: return
+        viewModelScope.launch {
+            val saved = PhotoSaver.save(
+                context    = getApplication(),
+                bitmap     = bitmap,
+                storageUri = storageUri
+            )
+            if (saved == null) {
+                LogManager.e("ViewModel", "Photo save failed")
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Photo picker – loads an external image into PreviewScreen
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Called when the user picks a photo via the SAF picker.
+     * Decodes the Uri into a Bitmap and opens the PreviewScreen.
+     */
+    fun onPhotoPicked(uri: Uri) {
+        viewModelScope.launch {
+            val bitmap = withContext(Dispatchers.IO) {
+                try {
+                    getApplication<Application>().contentResolver
+                        .openInputStream(uri)
+                        ?.use { BitmapFactory.decodeStream(it) }
+                } catch (e: Exception) {
+                    LogManager.e("ViewModel", "Failed to decode picked photo: ${e.message}", e)
+                    null
+                }
+            } ?: return@launch
+
+            _state.update {
+                it.copy(
+                    capturedPhoto     = bitmap,
+                    screen            = Screen.PREVIEW,
+                    previewFromPicker = true,
+                    // Reset filter/frame for imported photos
+                    selectedFilter    = FilterType.ORIGINAL,
+                    selectedFrame     = FrameType.NONE,
+                )
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Preview
+    // ---------------------------------------------------------------------------
+    fun selectFilter(filter: FilterType) {
+        _state.update { it.copy(selectedFilter = filter) }
+        viewModelScope.launch { settings.setFilter(filter.name) }
+    }
+
+    fun selectFrame(frame: FrameType) {
+        _state.update { it.copy(selectedFrame = frame, selectedCustomFrameId = null) }
+        viewModelScope.launch { settings.setFrame(frame.name) }
+    }
+
+    fun selectCustomFrame(entryId: String) {
+        _state.update { it.copy(selectedCustomFrameId = entryId, selectedFrame = FrameType.NONE) }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Print queue
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Enqueues a print job from the PreviewScreen (camera capture or picker).
+     */
+    fun enqueuePrintFromPreview(compositedBitmap: Bitmap) {
+        val photo    = _state.value.capturedPhoto ?: return
+        val filter   = _state.value.selectedFilter
+        val frame    = _state.value.selectedFrame
+        val customId = _state.value.selectedCustomFrameId
+
+        // compositedBitmap is already rendered at printer resolution
+        // (printerPrintWidth × printerPrintHeight) by PreviewScreen.
+        // No further scaling needed.
+        val job = PrintJob(
+            id               = UUID.randomUUID().toString(),
+            photo            = photo,
+            filter           = filter,
+            frame            = frame,
+            customFrameId    = customId,
+            compositedBitmap = compositedBitmap,
+        )
+        _state.update {
+            it.copy(
+                printQueue        = it.printQueue + job,
+                screen            = Screen.CAMERA,
+                previewFromPicker = false,
+            )
+        }
+        startPrintQueueIfIdle()
+    }
+
+    private fun startPrintQueueIfIdle() {
+        if (printQueueJob?.isActive == true) return
+        printQueueJob = viewModelScope.launch {
+            while (_state.value.printQueue.isNotEmpty()) {
+                val job = _state.value.printQueue.first()
+                // If a pre-composited bitmap is available (set by enqueuePrintFromPreview),
+                // use it directly — it is already scaled to printer resolution and
+                // pixel-identical to what the user saw in the preview.
+                val composited = job.compositedBitmap ?: run {
+                    val filtered = applyFilterForPrint(job.photo, job.filter)
+                    val model  = printer.detectedModel
+                    val printW = model.width
+                    val printH = model.height
+                    if (job.customFrameId != null) {
+                        val filename = job.customFrameId.removePrefix("custom:")
+                        val frameBitmap = frameRepo.loadCustomBitmap(filename)
+                        if (frameBitmap != null)
+                            com.photo.openzinkbooth.ui.components.applyCustomFrameForPrint(filtered, frameBitmap, printW, printH)
+                        else
+                            applyFrameForPrint(filtered, job.frame, printW, printH)
+                    } else {
+                        applyFrameForPrint(filtered, job.frame, printW, printH)
+                    }
+                }
+
+                printer.print(composited, isDryRun = _state.value.debugDryRun)
+
+                _state.update { it.copy(printQueue = it.printQueue.drop(1)) }
+                settings.decrementPaperCount()
+            }
+            _state.update { it.copy(currentPrintProgress = 0) }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Paper modal
+    // ---------------------------------------------------------------------------
+    fun showPaperModal()  = _state.update { it.copy(paperModalVisible = true)  }
+    fun hidePaperModal()  = _state.update { it.copy(paperModalVisible = false) }
+
+    fun confirmPaperRefill() {
+        viewModelScope.launch { settings.resetPaperCount() }
+        _state.update { it.copy(paperEmpty = false, paperModalVisible = false) }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Bluetooth state
+    // ---------------------------------------------------------------------------
+
+    /** True when Bluetooth is enabled on the device. */
+    private fun isBluetoothEnabled(): Boolean =
+        android.bluetooth.BluetoothAdapter.getDefaultAdapter()?.isEnabled == true
+
+    /**
+     * Called from MainActivity after the BT permission request completes.
+     * [granted] = true when both BLUETOOTH_SCAN and BLUETOOTH_CONNECT are granted.
+     */
+    fun onPermissionsResult(granted: Boolean) {
+        if (!granted) {
+            _state.update {
+                it.copy(printerConnectionState = PrinterConnectionState.BLUETOOTH_PERMISSION_DENIED)
+            }
+            return
+        }
+        if (isBluetoothEnabled()) printer.autoScan()
+        else _state.update {
+            it.copy(printerConnectionState = PrinterConnectionState.BLUETOOTH_DISABLED)
+        }
+    }
+
+    /** Called when the user enables Bluetooth via the system dialog. */
+    fun onBluetoothEnabled() {
+        if (_state.value.printerConnectionState == PrinterConnectionState.BLUETOOTH_DISABLED) {
+            printer.autoScan()
+        }
+    }
+
+    /**
+     * Returns false and sets BLUETOOTH_PERMISSION_DENIED if permissions are missing,
+     * or BLUETOOTH_DISABLED if BT is off. Callers abort early on false.
+     */
+    private fun requireBluetooth(): Boolean {
+        val hasPermission = listOf(
+            android.Manifest.permission.BLUETOOTH_SCAN,
+            android.Manifest.permission.BLUETOOTH_CONNECT
+        ).all { perm ->
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                getApplication(), perm
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (!hasPermission) {
+            _state.update {
+                it.copy(printerConnectionState = PrinterConnectionState.BLUETOOTH_PERMISSION_DENIED)
+            }
+            return false
+        }
+        if (!isBluetoothEnabled()) {
+            _state.update {
+                it.copy(printerConnectionState = PrinterConnectionState.BLUETOOTH_DISABLED)
+            }
+            return false
+        }
+        return true
+    }
+
+    fun reconnectPrinter() {
+        if (!requireBluetooth()) return
+        printer.disconnect()
+        printer.autoScan()
+    }
+
+    fun disconnectPrinter() {
+        printer.disconnect()
+        // If disconnecting from the config screen, navigate back to settings
+        if (_state.value.screen == Screen.PRINTER_CONFIG) {
+            _state.update { it.copy(screen = Screen.SETTINGS) }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Printer config (RFCOMM)
+    // ---------------------------------------------------------------------------
+
+    val lastPrintBitmap = printer.lastPrintBitmap
+
+    val printerIdentity = printer.identity
+    val printerConfig   = printer.config
+
+    fun applyPrinterConfig(config: com.photo.openzinkbooth.core.ble.PrinterConfig) {
+        viewModelScope.launch {
+            try { printer.applyConfig(config) }
+            catch (e: Exception) { LogManager.e("ViewModel", "applyConfig failed: ${e.message}") }
+        }
+    }
+
+    fun refreshPrinterIdentity() {
+        viewModelScope.launch {
+            try { printer.refreshIdentity() }
+            catch (e: Exception) { LogManager.e("ViewModel", "refreshIdentity failed: ${e.message}") }
+        }
+    }
+
+    fun refreshPrinterConfig() {
+        viewModelScope.launch {
+            try { printer.refreshConfig() }
+            catch (e: Exception) { LogManager.e("ViewModel", "refreshConfig failed: ${e.message}") }
+        }
+    }
+
+    fun toggleDebugDryRun() = _state.update { it.copy(debugDryRun = !it.debugDryRun) }
+
+    fun startManualScan() {
+        if (!requireBluetooth()) return
+        _manualScanDevices.value = emptyList()
+        printer.startManualScan { peripheral, model, deviceName ->
+            val entry = ManualScanDevice(peripheral, model, deviceName)
+            if (_manualScanDevices.value.none { it.address == entry.address }) {
+                _manualScanDevices.value = _manualScanDevices.value + entry
+            }
+        }
+    }
+
+    fun stopManualScan() {
+        printer.stopScan()
+        _manualScanDevices.value = emptyList()
+    }
+
+    fun connectManualDevice(device: ManualScanDevice) {
+        printer.connectToDevice(device.peripheral, device.model)
+        _manualScanDevices.value = emptyList()
+        _state.update { it.copy(screen = Screen.SETTINGS) }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Frame Manager
+    // ---------------------------------------------------------------------------
+
+    fun setFrameVisible(entryId: String, visible: Boolean) {
+        viewModelScope.launch { frameRepo.setVisible(entryId, visible) }
+    }
+
+    fun saveFrameOrder(entries: List<FrameEntry>) {
+        viewModelScope.launch { frameRepo.saveOrder(entries) }
+    }
+
+    fun addCustomFrame(uri: android.net.Uri, name: String) {
+        viewModelScope.launch { frameRepo.addCustomFrame(uri, name) }
+    }
+
+    fun renameCustomFrame(oldFilename: String, newName: String) {
+        viewModelScope.launch { frameRepo.renameCustomFrame(oldFilename, newName) }
+    }
+
+    fun deleteCustomFrame(filename: String) {
+        viewModelScope.launch { frameRepo.deleteCustomFrame(filename) }
+    }
+
+    fun loadCustomFrameBitmap(filename: String): Bitmap? =
+        frameRepo.loadCustomBitmap(filename)
+
+    // ---------------------------------------------------------------------------
+    // Settings
+    // ---------------------------------------------------------------------------
+    fun setDynamicColor(enabled: Boolean)  = viewModelScope.launch { settings.setDynamicColor(enabled) }
+    fun setFrontCamera(front: Boolean)     = viewModelScope.launch { settings.setFrontCamera(front) }
+    fun setFlash(enabled: Boolean)         = viewModelScope.launch { settings.setFlash(enabled) }
+    fun setShutterSound(enabled: Boolean)  = viewModelScope.launch { settings.setShutterSound(enabled) }
+    fun setStorageUri(uri: Uri?)           = viewModelScope.launch { settings.setStorageUri(uri) }
+
+    override fun onCleared() {
+        printer.disconnect()
+        super.onCleared()
+    }
+}
