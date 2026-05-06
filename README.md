@@ -54,8 +54,12 @@ If you found a bug, have an idea how to improve the openZinkBooth app or have a 
         <img src='docs/screenshots/openZinkBooth_preview.png' width='200px' alt='image missing' /> </a>
     </th>
     <th>
-        <a href="docs/screenshots/openScale_config.png" target="_blank">
-        <img src='docs/screenshots/openScale_config.png' width='200px' alt='image missing' /> </a>
+        <a href="docs/screenshots/openZinkBooth_drawer.png" target="_blank">
+        <img src='docs/screenshots/openZinkBooth_drawer.png' width='200px' alt='image missing' /> </a>
+    </th>
+        <th>
+        <a href="docs/screenshots/openZinkBooth_config.png" target="_blank">
+        <img src='docs/screenshots/openZinkBooth_config.png' width='200px' alt='image missing' /> </a>
     </th>
   </tr>
 </table>
