@@ -157,9 +157,7 @@ fun PreviewScreen(
                 text     = stringResource(R.string.preview_filter_label),
                 style    = MaterialTheme.typography.labelSmall,
                 color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp)
+                modifier = Modifier.padding(bottom = 8.dp)
             )
             FilterPicker(
                 photo       = photo,
@@ -167,7 +165,7 @@ fun PreviewScreen(
                 onSelect    = onFilterSelected,
                 listState   = filterListState,
                 modifier    = Modifier
-                    .fillMaxWidth()
+                    .wrapContentWidth()
                     .scrollFade(filterListState, MaterialTheme.colorScheme.background)
             )
 
@@ -178,9 +176,7 @@ fun PreviewScreen(
                 text     = stringResource(R.string.preview_frame_label),
                 style    = MaterialTheme.typography.labelSmall,
                 color    = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp)
+                modifier = Modifier.padding(bottom = 8.dp)
             )
             FramePicker(
                 photo                = photo,
@@ -192,7 +188,7 @@ fun PreviewScreen(
                 loadCustomBitmap     = loadCustomBitmap,
                 listState            = frameListState,
                 modifier             = Modifier
-                    .fillMaxWidth()
+                    .wrapContentWidth()
                     .scrollFade(frameListState, MaterialTheme.colorScheme.background)
             )
 
