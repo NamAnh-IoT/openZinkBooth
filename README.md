@@ -1,4 +1,4 @@
-# ![openZinkBooth logo](https://github.com/oliexdev/openZinkBooth/blob/master/docs/openZinkBooth.png) openZinkBooth
+# ![openZinkBooth logo](https://github.com/oliexdev/openZinkBooth/blob/main/app/src/main/res/mipmap-mdpi/ic_launcher.png) openZinkBooth
 
 An easy-to-use photo booth app for capturing and instantly printing photos with HP Sprocket
 
