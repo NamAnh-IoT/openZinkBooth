@@ -21,7 +21,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: android_app
+        working-directory: app
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
