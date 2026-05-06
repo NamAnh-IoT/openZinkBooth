@@ -128,7 +128,21 @@ fun ZinkBoothApp(viewModel: ZinkBoothViewModel) {
         )
     }
 
-    // BT permission request – launched on first start
+    val btPermissions = arrayOf(
+        android.Manifest.permission.BLUETOOTH_SCAN,
+        android.Manifest.permission.BLUETOOTH_CONNECT
+    )
+
+    // Camera permission state – checked before any BT logic
+    var cameraPermissionGranted by remember {
+        mutableStateOf(
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.CAMERA
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    // BT permission request
     val btPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
@@ -140,16 +154,15 @@ fun ZinkBoothApp(viewModel: ZinkBoothViewModel) {
     val appSettingsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        // Re-check permissions after returning from settings
-        val granted = listOf(
-            android.Manifest.permission.BLUETOOTH_SCAN,
-            android.Manifest.permission.BLUETOOTH_CONNECT
-        ).all { perm ->
+        val granted = btPermissions.all { perm ->
             androidx.core.content.ContextCompat.checkSelfPermission(
                 context, perm
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         }
         viewModel.onPermissionsResult(granted)
+        cameraPermissionGranted = androidx.core.content.ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.CAMERA
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
     }
 
     fun openAppSettings() {
@@ -160,7 +173,7 @@ fun ZinkBoothApp(viewModel: ZinkBoothViewModel) {
         appSettingsLauncher.launch(intent)
     }
 
-    // Bluetooth enable request – shown when the BLUETOOTH_DISABLED pill is tapped.
+    // Bluetooth enable request
     val bluetoothEnableLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -176,45 +189,33 @@ fun ZinkBoothApp(viewModel: ZinkBoothViewModel) {
         bluetoothEnableLauncher.launch(intent)
     }
 
-    // Check permissions on first composition
-    // Camera permission request
-    var cameraPermissionGranted by remember {
-        mutableStateOf(
-            androidx.core.content.ContextCompat.checkSelfPermission(
-                context, android.Manifest.permission.CAMERA
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        )
-    }
-
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        cameraPermissionGranted = granted
-        if (!granted) {
-            // User denied – we'll show a message and open app settings on tap
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        // Request camera permission if not already granted
-        if (!cameraPermissionGranted) {
-            cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
-        }
-
-        // Request BT permissions
-        val btPermissions = arrayOf(
-            android.Manifest.permission.BLUETOOTH_SCAN,
-            android.Manifest.permission.BLUETOOTH_CONNECT
-        )
+    fun checkAndRequestBtPermissions() {
         val btGranted = btPermissions.all { perm ->
             androidx.core.content.ContextCompat.checkSelfPermission(
                 context, perm
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         }
-        if (btGranted) {
-            viewModel.onPermissionsResult(true)
+        if (btGranted) viewModel.onPermissionsResult(true)
+        else btPermissionLauncher.launch(btPermissions)
+    }
+
+    // Camera permission – requested first; BT permission follows in the callback
+    // so the two system dialogs never overlap.
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        cameraPermissionGranted = granted
+        // Camera dialog done – now safe to request BT permissions
+        checkAndRequestBtPermissions()
+    }
+
+    LaunchedEffect(Unit) {
+        if (!cameraPermissionGranted) {
+            // Show camera dialog first; BT follows in cameraPermissionLauncher callback
+            cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
         } else {
-            btPermissionLauncher.launch(btPermissions)
+            // Camera already granted – go straight to BT
+            checkAndRequestBtPermissions()
         }
     }
 
