@@ -156,4 +156,11 @@
     <string name="not_available">N/A</string>
     <string name="camera_permission_denied">Camera access is required to take photos. Tap below to open settings.</string>
     <string name="camera_permission_open_settings">Open Settings</string>
+    <string name="printer_config_calibration">Calibration</string>
+    <string name="printer_config_calibration_enabled">Output Correction</string>
+    <string name="printer_config_calib_vscale">Vertical Scale</string>
+    <string name="printer_config_calib_voffset">Top Offset</string>
+    <string name="dialog_set_value_title">Set value</string>
+    <string name="dialog_ok">OK</string>
+    <string name="dialog_cancel">Cancel</string>
 </resources>

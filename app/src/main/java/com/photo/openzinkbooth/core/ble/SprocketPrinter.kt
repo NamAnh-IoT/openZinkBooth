@@ -24,10 +24,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.Matrix
-import android.graphics.Paint
 import com.welie.blessed.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -953,6 +950,30 @@ class SprocketPrinter(private val context: Context) {
     }
 
     // ---------------------------------------------------------------------------
+    // Printer calibration – configurable at runtime via setCalibration().
+    //
+    // Physical measurements show the Sprocket 200 stretches the image ~5%
+    // vertically and shifts it down ~3.5mm. These values pre-correct the
+    // bitmap so the physical output matches the on-screen preview.
+    //
+    // calibrationVScale  = 1/1.05 ≈ 0.9524 – vertical compression factor
+    // calibrationVOffset = 46px   = 3.5mm @ 13.18px/mm – top white padding
+    //
+    // Values are persisted in DataStore and pushed here via setCalibration()
+    // every time the user changes them in PrinterConfigScreen — changes take
+    // effect immediately on the next print.
+    // ---------------------------------------------------------------------------
+    @Volatile private var calibrationEnabled = true
+    @Volatile private var calibrationVScale  = 0.9524f
+    @Volatile private var calibrationVOffset = 46
+
+    fun setCalibration(enabled: Boolean, vScale: Float, vOffset: Int) {
+        calibrationEnabled = enabled
+        calibrationVScale  = vScale
+        calibrationVOffset = vOffset
+    }
+
+    // ---------------------------------------------------------------------------
     // Image preparation: scale-to-fill + center-crop to model dimensions, JPEG.
     // ---------------------------------------------------------------------------
     private fun prepareImage(bitmap: Bitmap, model: SprocketModel): ByteArray {
@@ -1014,11 +1035,28 @@ class SprocketPrinter(private val context: Context) {
             canvas.drawBitmap(fitted, 0f, 0f, null)
         }
 
+        // Apply printer calibration correction:
+        // The Sprocket 200 stretches the image ~5% vertically and shifts it
+        // down ~3.5mm. We pre-correct by compressing the image vertically and
+        // adding white padding at the top so the physical output matches the preview.
+        val corrected = if (calibrationEnabled) {
+            val scaledH = (targetH * calibrationVScale).toInt()
+            val topPad  = calibrationVOffset
+            val scaled  = Bitmap.createScaledBitmap(flattened, targetW, scaledH, true)
+            Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888).apply {
+                val c = Canvas(this)
+                c.drawColor(Color.WHITE)
+                c.drawBitmap(scaled, 0f, topPad.toFloat(), null)
+            }
+        } else {
+            flattened
+        }
+
         // Store for debug preview (DEBUG builds only)
-        _lastPrintBitmap.value = flattened
+        _lastPrintBitmap.value = corrected
 
         return ByteArrayOutputStream()
-            .also { flattened.compress(Bitmap.CompressFormat.JPEG, model.jpegQuality, it) }
+            .also { corrected.compress(Bitmap.CompressFormat.JPEG, model.jpegQuality, it) }
             .toByteArray()
     }
 

@@ -26,6 +26,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -56,6 +57,10 @@ data class SettingsData(
     // Last successfully connected printer – used for auto-connect on next launch
     val pairedPrinterAddress: String? = null,
     val pairedPrinterName: String?    = null,
+    // Printer output calibration (Sprocket 200 default values)
+    val calibrationEnabled: Boolean  = true,
+    val calibrationVScale: Float     = 0.9524f,  // 1/1.05 – vertical compression
+    val calibrationVOffset: Int      = 46,        // top padding in pixels
 ) {
     val storageUri: Uri? get() = storageUriString?.toUri()
 }
@@ -66,17 +71,20 @@ data class SettingsData(
 class SettingsRepository(private val context: Context) {
 
     companion object {
-        private val KEY_DYNAMIC_COLOR   = booleanPreferencesKey("dynamic_color")
-        private val KEY_FRONT_CAMERA    = booleanPreferencesKey("front_camera")
-        private val KEY_FLASH           = booleanPreferencesKey("flash")
-        private val KEY_SHUTTER_SOUND   = booleanPreferencesKey("shutter_sound")
-        private val KEY_STORAGE_URI     = stringPreferencesKey("storage_uri")
-        private val KEY_TIMER           = intPreferencesKey("timer_seconds")
-        private val KEY_PAPER_COUNT     = intPreferencesKey("paper_count")
-        private val KEY_FILTER          = stringPreferencesKey("selected_filter")
-        private val KEY_FRAME           = stringPreferencesKey("selected_frame")
-        private val KEY_PAIRED_ADDRESS  = stringPreferencesKey("paired_printer_address")
-        private val KEY_PAIRED_NAME     = stringPreferencesKey("paired_printer_name")
+        private val KEY_DYNAMIC_COLOR      = booleanPreferencesKey("dynamic_color")
+        private val KEY_FRONT_CAMERA       = booleanPreferencesKey("front_camera")
+        private val KEY_FLASH              = booleanPreferencesKey("flash")
+        private val KEY_SHUTTER_SOUND      = booleanPreferencesKey("shutter_sound")
+        private val KEY_STORAGE_URI        = stringPreferencesKey("storage_uri")
+        private val KEY_TIMER              = intPreferencesKey("timer_seconds")
+        private val KEY_PAPER_COUNT        = intPreferencesKey("paper_count")
+        private val KEY_FILTER             = stringPreferencesKey("selected_filter")
+        private val KEY_FRAME              = stringPreferencesKey("selected_frame")
+        private val KEY_PAIRED_ADDRESS     = stringPreferencesKey("paired_printer_address")
+        private val KEY_PAIRED_NAME        = stringPreferencesKey("paired_printer_name")
+        private val KEY_CALIB_ENABLED      = booleanPreferencesKey("calib_enabled")
+        private val KEY_CALIB_V_SCALE      = floatPreferencesKey("calib_v_scale")
+        private val KEY_CALIB_V_OFFSET     = intPreferencesKey("calib_v_offset")
     }
 
     val settings: Flow<SettingsData> = context.dataStore.data
@@ -85,19 +93,31 @@ class SettingsRepository(private val context: Context) {
         }
         .map { prefs ->
             SettingsData(
-                dynamicColor          = prefs[KEY_DYNAMIC_COLOR]  ?: false,
-                useFrontCamera        = prefs[KEY_FRONT_CAMERA]   ?: true,
-                flashEnabled          = prefs[KEY_FLASH]          ?: false,
-                shutterSoundEnabled   = prefs[KEY_SHUTTER_SOUND]  ?: false,
+                dynamicColor          = prefs[KEY_DYNAMIC_COLOR]   ?: false,
+                useFrontCamera        = prefs[KEY_FRONT_CAMERA]    ?: true,
+                flashEnabled          = prefs[KEY_FLASH]           ?: false,
+                shutterSoundEnabled   = prefs[KEY_SHUTTER_SOUND]   ?: false,
                 storageUriString      = prefs[KEY_STORAGE_URI],
-                timerSeconds          = prefs[KEY_TIMER]          ?: 0,
-                paperCount            = prefs[KEY_PAPER_COUNT]    ?: -1,
-                selectedFilter        = prefs[KEY_FILTER]         ?: "ORIGINAL",
-                selectedFrame         = prefs[KEY_FRAME]          ?: "NONE",
+                timerSeconds          = prefs[KEY_TIMER]           ?: 0,
+                paperCount            = prefs[KEY_PAPER_COUNT]     ?: -1,
+                selectedFilter        = prefs[KEY_FILTER]          ?: "ORIGINAL",
+                selectedFrame         = prefs[KEY_FRAME]           ?: "NONE",
                 pairedPrinterAddress  = prefs[KEY_PAIRED_ADDRESS],
                 pairedPrinterName     = prefs[KEY_PAIRED_NAME],
+                calibrationEnabled    = prefs[KEY_CALIB_ENABLED]   ?: true,
+                calibrationVScale     = prefs[KEY_CALIB_V_SCALE]   ?: 0.9524f,
+                calibrationVOffset    = prefs[KEY_CALIB_V_OFFSET]  ?: 46,
             )
         }
+
+    suspend fun setCalibrationEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[KEY_CALIB_ENABLED] = enabled }
+
+    suspend fun setCalibrationVScale(scale: Float) =
+        context.dataStore.edit { it[KEY_CALIB_V_SCALE] = scale }
+
+    suspend fun setCalibrationVOffset(offset: Int) =
+        context.dataStore.edit { it[KEY_CALIB_V_OFFSET] = offset }
 
     suspend fun setDynamicColor(enabled: Boolean) =
         context.dataStore.edit { it[KEY_DYNAMIC_COLOR] = enabled }

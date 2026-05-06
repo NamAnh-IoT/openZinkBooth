@@ -20,11 +20,16 @@ package com.photo.openzinkbooth.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalLocale
@@ -53,6 +58,9 @@ fun PrinterConfigScreen(
     onBack: () -> Unit,
     onApplyConfig: (PrinterConfig) -> Unit,
     onDisconnect: () -> Unit,
+    onSetCalibrationEnabled: (Boolean) -> Unit,
+    onSetCalibrationVScale: (Float) -> Unit,
+    onSetCalibrationVOffset: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -180,6 +188,54 @@ fun PrinterConfigScreen(
                     onSelect = { index ->
                         onApplyConfig(PrinterConfig(userColor = UserColor.entries[index]))
                     }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // ── Calibration ───────────────────────────────────────────────────
+            SectionLabel(stringResource(R.string.printer_config_calibration))
+
+            // Enable/disable toggle
+            ListItem(
+                leadingContent  = {
+                    Icon(Icons.Outlined.Tune, null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                },
+                headlineContent = {
+                    Text(stringResource(R.string.printer_config_calibration_enabled),
+                        style = MaterialTheme.typography.bodyLarge)
+                },
+                trailingContent = {
+                    Switch(
+                        checked         = uiState.calibrationEnabled,
+                        onCheckedChange = onSetCalibrationEnabled
+                    )
+                }
+            )
+
+            if (uiState.calibrationEnabled) {
+
+                CalibrationStepper(
+                    label = stringResource(R.string.printer_config_calib_vscale),
+                    value = uiState.calibrationVScale,
+                    range = 0.85f..1.00f,
+                    step = 0.01f,
+                    unit = "",
+                    format = { "%.2f".format(it) },   // 🔥 2 Nachkommastellen
+                    onValueChange = onSetCalibrationVScale
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                CalibrationStepper(
+                    label = stringResource(R.string.printer_config_calib_voffset),
+                    value = uiState.calibrationVOffset.toFloat(),
+                    range = 0f..100f,
+                    step = 1f,
+                    unit = "px",
+                    format = { "${it.toInt()}" },
+                    onValueChange = { onSetCalibrationVOffset(it.toInt()) }
                 )
             }
 
@@ -317,6 +373,107 @@ private fun ConfigDropdownRow(
                     }
                 }
             }
+        }
+    )
+}
+
+@Composable
+private fun CalibrationStepper(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    step: Float,
+    unit: String = "",
+    format: (Float) -> String,
+    onValueChange: (Float) -> Unit
+) {
+    var showDialog by remember { mutableStateOf(false) }
+
+    ListItem(
+        leadingContent = {
+            Icon(
+                Icons.Outlined.Tune,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        },
+        headlineContent = {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+        },
+        trailingContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+                IconButton(
+                    onClick = {
+                        onValueChange((value - step).coerceIn(range))
+                    }
+                ) {
+                    Icon(Icons.Outlined.Remove, null)
+                }
+
+                TextButton(onClick = { showDialog = true }) {
+                    Text(
+                        text = "${format(value)} $unit",
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                IconButton(
+                    onClick = {
+                        onValueChange((value + step).coerceIn(range))
+                    }
+                ) {
+                    Icon(Icons.Outlined.Add, null)
+                }
+            }
+        }
+    )
+
+    if (showDialog) {
+        NumberInputDialog(
+            value = value,
+            onDismiss = { showDialog = false },
+            onConfirm = {
+                onValueChange(it.coerceIn(range))
+                showDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun NumberInputDialog(
+    value: Float,
+    onDismiss: () -> Unit,
+    onConfirm: (Float) -> Unit
+) {
+    var text by remember { mutableStateOf(value.toString()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = {
+                text.toFloatOrNull()?.let(onConfirm)
+            }) {
+                Text(stringResource(R.string.dialog_ok))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.dialog_cancel))
+            }
+        },
+        title = {
+            Text(stringResource(R.string.dialog_set_value_title))
+        },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                singleLine = true
+            )
         }
     )
 }

@@ -362,12 +362,15 @@ fun ZinkBoothApp(viewModel: ZinkBoothViewModel) {
                     val identity by viewModel.printerIdentity.collectAsState()
                     val config   by viewModel.printerConfig.collectAsState()
                     PrinterConfigScreen(
-                        identity      = identity,
-                        config        = config,
-                        uiState       = state,
-                        onBack        = viewModel::navigateBack,
-                        onApplyConfig = viewModel::applyPrinterConfig,
-                        onDisconnect  = viewModel::disconnectPrinter
+                        identity                = identity,
+                        config                  = config,
+                        uiState                 = state,
+                        onBack                  = viewModel::navigateBack,
+                        onApplyConfig           = viewModel::applyPrinterConfig,
+                        onDisconnect            = viewModel::disconnectPrinter,
+                        onSetCalibrationEnabled = viewModel::setCalibrationEnabled,
+                        onSetCalibrationVScale  = viewModel::setCalibrationVScale,
+                        onSetCalibrationVOffset = viewModel::setCalibrationVOffset,
                     )
                 }
 

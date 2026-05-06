@@ -129,6 +129,10 @@ data class ZinkUiState(
     val shutterSoundEnabled: Boolean = false,
     val storageUri: Uri?             = null,
     val debugDryRun: Boolean         = false,  // DEBUG: skip actual printing, preview only
+    // Printer output calibration
+    val calibrationEnabled: Boolean  = true,
+    val calibrationVScale: Float     = 0.9524f,
+    val calibrationVOffset: Int      = 46,
 
     // ── Frames ────────────────────────────────────────────────────────────────
     // Ordered list of all frames (built-in + custom). NONE is always prepended

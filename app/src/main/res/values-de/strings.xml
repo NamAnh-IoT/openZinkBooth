@@ -156,4 +156,11 @@
     <string name="not_available">N/V</string>
     <string name="camera_permission_denied">Kamerazugriff ist erforderlich um Fotos aufzunehmen. Tippe unten um die Einstellungen zu öffnen.</string>
     <string name="camera_permission_open_settings">Einstellungen öffnen</string>
+    <string name="printer_config_calibration">Kalibrierung</string>
+    <string name="printer_config_calibration_enabled">Ausgabekorrektur</string>
+    <string name="printer_config_calib_vscale">Vertikale Skalierung</string>
+    <string name="printer_config_calib_voffset">Oberer Versatz</string>
+    <string name="dialog_set_value_title">Wert setzen</string>
+    <string name="dialog_ok">OK</string>
+    <string name="dialog_cancel">Abbrechen</string>
 </resources>

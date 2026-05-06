@@ -43,7 +43,7 @@ import kotlinx.coroutines.Dispatchers
 import java.util.UUID
 
 class ZinkBoothViewModel(application: Application) : AndroidViewModel(application) {
-    val TAG = "ZinkBoothViewModel"
+
     val printer  = SprocketPrinter(application)
     private val settings = SettingsRepository(application)
     private val frameRepo = FrameRepository(application)
@@ -65,23 +65,31 @@ class ZinkBoothViewModel(application: Application) : AndroidViewModel(applicatio
             settings.settings.collect { s ->
                 _state.update {
                     it.copy(
-                        dynamicColor        = s.dynamicColor,
-                        useFrontCamera      = s.useFrontCamera,
-                        flashEnabled        = s.flashEnabled,
-                        shutterSoundEnabled = s.shutterSoundEnabled,
-                        storageUri          = s.storageUri,
-                        timerSeconds        = s.timerSeconds,
-                        paperCount          = s.paperCount,
-                        selectedFilter      = FilterType.entries
+                        dynamicColor         = s.dynamicColor,
+                        useFrontCamera       = s.useFrontCamera,
+                        flashEnabled         = s.flashEnabled,
+                        shutterSoundEnabled  = s.shutterSoundEnabled,
+                        storageUri           = s.storageUri,
+                        timerSeconds         = s.timerSeconds,
+                        paperCount           = s.paperCount,
+                        selectedFilter       = FilterType.entries
                             .firstOrNull { f -> f.name == s.selectedFilter }
                             ?: FilterType.ORIGINAL,
-                        selectedFrame       = FrameType.entries
+                        selectedFrame        = FrameType.entries
                             .firstOrNull { f -> f.name == s.selectedFrame }
                             ?: FrameType.NONE,
-                        // Restore last known printer name so the UI shows it before connect
-                        printerModelName    = s.pairedPrinterName ?: "",
+                        printerModelName     = s.pairedPrinterName ?: "",
+                        calibrationEnabled   = s.calibrationEnabled,
+                        calibrationVScale    = s.calibrationVScale,
+                        calibrationVOffset   = s.calibrationVOffset,
                     )
                 }
+                // Push calibration values to printer immediately
+                printer.setCalibration(
+                    enabled = s.calibrationEnabled,
+                    vScale  = s.calibrationVScale,
+                    vOffset = s.calibrationVOffset,
+                )
             }
         }
 
@@ -384,7 +392,7 @@ class ZinkBoothViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                 }
                 if (_state.value.debugDryRun) {
-                    LogManager.d(TAG, "DRY RUN – rendering bitmap for preview, not sent to printer")
+                    LogManager.d("ViewModel", "DRY RUN – rendering bitmap for preview, not sent to printer")
                     printer.prepareImageForPreview(composited)
                 } else {
                     printer.print(composited)
@@ -522,17 +530,17 @@ class ZinkBoothViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             try {
                 if (_state.value.debugDryRun) {
-                    LogManager.d(TAG, "DRY RUN – test image rendered, not sent to printer")
+                    LogManager.d("ViewModel", "DRY RUN – test image rendered, not sent to printer")
                     printer.prepareImageForPreview(bitmap)
                 } else {
                     if (!_state.value.printerConnected) {
-                        LogManager.w(TAG, "printTestImage: printer not ready")
+                        LogManager.w("ViewModel", "printTestImage: printer not ready")
                         return@launch
                     }
                     printer.print(bitmap)
                 }
             } catch (e: Exception) {
-                LogManager.e(TAG, "Test print failed: ${e.message}")
+                LogManager.e("ViewModel", "Test print failed: ${e.message}")
             }
         }
     }
@@ -593,6 +601,10 @@ class ZinkBoothViewModel(application: Application) : AndroidViewModel(applicatio
     fun setFrontCamera(front: Boolean)     = viewModelScope.launch { settings.setFrontCamera(front) }
     fun setFlash(enabled: Boolean)         = viewModelScope.launch { settings.setFlash(enabled) }
     fun setShutterSound(enabled: Boolean)  = viewModelScope.launch { settings.setShutterSound(enabled) }
+
+    fun setCalibrationEnabled(enabled: Boolean) = viewModelScope.launch { settings.setCalibrationEnabled(enabled) }
+    fun setCalibrationVScale(scale: Float)       = viewModelScope.launch { settings.setCalibrationVScale(scale) }
+    fun setCalibrationVOffset(offset: Int)       = viewModelScope.launch { settings.setCalibrationVOffset(offset) }
     fun setStorageUri(uri: Uri?)           = viewModelScope.launch { settings.setStorageUri(uri) }
 
     override fun onCleared() {
