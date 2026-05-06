@@ -22,7 +22,6 @@ import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
-import androidx.camera.core.impl.utils.ContextUtil.getApplication
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.photo.openzinkbooth.BuildConfig
@@ -44,7 +43,7 @@ import kotlinx.coroutines.Dispatchers
 import java.util.UUID
 
 class ZinkBoothViewModel(application: Application) : AndroidViewModel(application) {
-
+    val TAG = "ZinkBoothViewModel"
     val printer  = SprocketPrinter(application)
     private val settings = SettingsRepository(application)
     private val frameRepo = FrameRepository(application)
@@ -384,9 +383,12 @@ class ZinkBoothViewModel(application: Application) : AndroidViewModel(applicatio
                         applyFrameForPrint(filtered, job.frame, printW, printH)
                     }
                 }
-
-                printer.print(composited, isDryRun = _state.value.debugDryRun)
-
+                if (_state.value.debugDryRun) {
+                    LogManager.d(TAG, "DRY RUN – rendering bitmap for preview, not sent to printer")
+                    printer.prepareImageForPreview(composited)
+                } else {
+                    printer.print(composited)
+                }
                 _state.update { it.copy(printQueue = it.printQueue.drop(1)) }
                 settings.decrementPaperCount()
             }
@@ -510,6 +512,30 @@ class ZinkBoothViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun toggleDebugDryRun() = _state.update { it.copy(debugDryRun = !it.debugDryRun) }
+
+    /**
+     * Send a calibration test image directly to the printer, bypassing the
+     * normal photo + frame pipeline. Honours debugDryRun: if enabled, runs
+     * prepareImage to populate lastPrintBitmap but does NOT actually print.
+     */
+    fun printTestImage(bitmap: Bitmap) {
+        viewModelScope.launch {
+            try {
+                if (_state.value.debugDryRun) {
+                    LogManager.d(TAG, "DRY RUN – test image rendered, not sent to printer")
+                    printer.prepareImageForPreview(bitmap)
+                } else {
+                    if (!_state.value.printerConnected) {
+                        LogManager.w(TAG, "printTestImage: printer not ready")
+                        return@launch
+                    }
+                    printer.print(bitmap)
+                }
+            } catch (e: Exception) {
+                LogManager.e(TAG, "Test print failed: ${e.message}")
+            }
+        }
+    }
 
     fun startManualScan() {
         if (!requireBluetooth()) return

@@ -62,6 +62,9 @@ fun AboutScreen(
     lastPrintBitmap: Bitmap? = null,
     debugDryRun: Boolean = false,
     onToggleDebugDryRun: () -> Unit = {},
+    onTestPrint: (Bitmap) -> Unit = {},
+    printWidth: Int = 640,
+    printHeight: Int = 1002,
     modifier: Modifier = Modifier
 ) {
     val uriHandler = LocalUriHandler.current
@@ -201,6 +204,27 @@ fun AboutScreen(
                 }
 
                 DebugTools()
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Test print button – generates a calibration image
+                Button(
+                    onClick  = {
+                        val testBitmap = createTestImage(printWidth, printHeight)
+                        onTestPrint(testBitmap)
+                    },
+                    colors   = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor   = MaterialTheme.colorScheme.onError
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Icon(Icons.Outlined.Straighten, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Test Print (Kalibrierung)")
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -314,4 +338,168 @@ private fun AboutListItem(
             containerColor = androidx.compose.ui.graphics.Color.Transparent
         )
     )
+}
+
+// ---------------------------------------------------------------------------
+// Calibration test image generator
+//
+// Produces a bitmap with measurable elements to verify printer output:
+// - 8mm thick red border outside (≈100px at 313dpi) — easy to measure how
+//   much (if any) is cut off on each side after printing
+// - 5mm tick marks with mm labels along all four edges (inside the red border)
+// - L-shaped corner markers in all four corners
+// - Diagonals from corner to corner (detect stretching/skew)
+// - Center crosshair with 5mm circle (verify centering: should land at
+//   25mm × 38mm on the 50×76mm Zink paper)
+// - Resolution info text in the center
+// ---------------------------------------------------------------------------
+fun createTestImage(width: Int, height: Int): Bitmap {
+    // Zink paper is 50mm × 76mm. Common print resolution is 313dpi for
+    // 640×1002 paper, but we calculate dpi from the actual bitmap size:
+    val dpiX = width  / (50f / 25.4f)   // px per inch (width direction)
+    val dpiY = height / (76f / 25.4f)   // px per inch (height direction)
+    val pxPerMm = (dpiX + dpiY) / 2f / 25.4f  // average px per mm
+
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bitmap)
+    canvas.drawColor(android.graphics.Color.WHITE)
+
+    val borderPx = (8f * pxPerMm).toInt()  // 8mm red border
+
+    // ── Red outer border (8mm wide) ──────────────────────────────────────
+    val redPaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.RED
+        style = android.graphics.Paint.Style.FILL
+        isAntiAlias = false
+    }
+    canvas.drawRect(0f, 0f, width.toFloat(), borderPx.toFloat(), redPaint)
+    canvas.drawRect(0f, height - borderPx.toFloat(), width.toFloat(), height.toFloat(), redPaint)
+    canvas.drawRect(0f, 0f, borderPx.toFloat(), height.toFloat(), redPaint)
+    canvas.drawRect(width - borderPx.toFloat(), 0f, width.toFloat(), height.toFloat(), redPaint)
+
+    // ── Black tick marks every 5mm inside the red border ─────────────────
+    val tickPaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.BLACK
+        strokeWidth = 1.5f
+        isAntiAlias = false
+    }
+    val labelPaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.BLACK
+        textSize = 2f * pxPerMm   // 6mm tall labels for readability
+        isAntiAlias = true
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
+
+    val tickLength = (3f * pxPerMm).toInt()
+    val widthMm  = (width  / pxPerMm).toInt()
+    val heightMm = (height / pxPerMm).toInt()
+
+    // Top + bottom tick marks (with mm labels)
+    var mm = 0
+    while (mm <= widthMm) {
+        val x = mm * pxPerMm
+        canvas.drawLine(x, borderPx.toFloat(), x, (borderPx + tickLength).toFloat(), tickPaint)
+        canvas.drawLine(x, (height - borderPx).toFloat(), x, (height - borderPx - tickLength).toFloat(), tickPaint)
+        if (mm % 10 == 0 && mm > 0 && mm < widthMm) {
+            canvas.drawText(mm.toString(), x + 2f, borderPx + tickLength + labelPaint.textSize, labelPaint)
+            canvas.drawText(mm.toString(), x + 2f, height - borderPx - tickLength - 4f, labelPaint)
+        }
+        mm += 5
+    }
+
+    // Left + right tick marks (with mm labels)
+    mm = 0
+    while (mm <= heightMm) {
+        val y = mm * pxPerMm
+        canvas.drawLine(borderPx.toFloat(), y, (borderPx + tickLength).toFloat(), y, tickPaint)
+        canvas.drawLine((width - borderPx).toFloat(), y, (width - borderPx - tickLength).toFloat(), y, tickPaint)
+        if (mm % 10 == 0 && mm > 0 && mm < heightMm) {
+            canvas.drawText(mm.toString(), borderPx + tickLength + 4f, y + labelPaint.textSize / 2, labelPaint)
+            canvas.drawText(mm.toString(), width - borderPx - tickLength - labelPaint.measureText(mm.toString()) - 4f, y + labelPaint.textSize / 2, labelPaint)
+        }
+        mm += 5
+    }
+
+    // ── L-shaped corner markers (10mm long, 1.5mm thick) ─────────────────
+    val cornerLen = (10f * pxPerMm)
+    val cornerThick = (1.5f * pxPerMm)
+    val cornerPaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.BLACK
+        style = android.graphics.Paint.Style.FILL
+        isAntiAlias = false
+    }
+    val inset = borderPx.toFloat() + (5f * pxPerMm)  // 5mm inside the red border
+
+    // Top-left
+    canvas.drawRect(inset, inset, inset + cornerLen, inset + cornerThick, cornerPaint)
+    canvas.drawRect(inset, inset, inset + cornerThick, inset + cornerLen, cornerPaint)
+    // Top-right
+    canvas.drawRect(width - inset - cornerLen, inset, width - inset, inset + cornerThick, cornerPaint)
+    canvas.drawRect(width - inset - cornerThick, inset, width - inset, inset + cornerLen, cornerPaint)
+    // Bottom-left
+    canvas.drawRect(inset, height - inset - cornerThick, inset + cornerLen, height - inset, cornerPaint)
+    canvas.drawRect(inset, height - inset - cornerLen, inset + cornerThick, height - inset, cornerPaint)
+    // Bottom-right
+    canvas.drawRect(width - inset - cornerLen, height - inset - cornerThick, width - inset, height - inset, cornerPaint)
+    canvas.drawRect(width - inset - cornerThick, height - inset - cornerLen, width - inset, height - inset, cornerPaint)
+
+    // ── Diagonals (thin gray lines) ──────────────────────────────────────
+    val diagPaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.LTGRAY
+        strokeWidth = 1f
+        isAntiAlias = true
+    }
+    canvas.drawLine(borderPx.toFloat(), borderPx.toFloat(),
+        (width - borderPx).toFloat(), (height - borderPx).toFloat(), diagPaint)
+    canvas.drawLine((width - borderPx).toFloat(), borderPx.toFloat(),
+        borderPx.toFloat(), (height - borderPx).toFloat(), diagPaint)
+
+    // ── Center crosshair (1.5mm thick) with 5mm circle ───────────────────
+    val cx = width / 2f
+    val cy = height / 2f
+    val crossLen = (8f * pxPerMm)
+    val crossPaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.BLACK
+        strokeWidth = 1.5f * pxPerMm
+        style = android.graphics.Paint.Style.STROKE
+        isAntiAlias = false
+    }
+    canvas.drawLine(cx - crossLen, cy, cx + crossLen, cy, crossPaint)
+    canvas.drawLine(cx, cy - crossLen, cx, cy + crossLen, crossPaint)
+    crossPaint.strokeWidth = 1f
+    canvas.drawCircle(cx, cy, 5f * pxPerMm, crossPaint)
+
+    // ── Orientation labels OBEN / UNTEN / LINKS / RECHTS ─────────────────
+    val orientPaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.BLACK
+        textSize = 4f * pxPerMm
+        isAntiAlias = true
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        textAlign = android.graphics.Paint.Align.CENTER
+    }
+    canvas.drawText("TOP", cx, borderPx + (18f * pxPerMm), orientPaint)
+    canvas.drawText("BOTTOM", cx, height - borderPx - (12f * pxPerMm), orientPaint)
+
+    canvas.save()
+    canvas.rotate(-90f, borderPx + (12f * pxPerMm), cy)
+    canvas.drawText("LEFT", borderPx + (12f * pxPerMm), cy, orientPaint)
+    canvas.restore()
+
+    canvas.save()
+    canvas.rotate(90f, width - borderPx - (12f * pxPerMm), cy)
+    canvas.drawText("RIGHT", width - borderPx - (12f * pxPerMm), cy, orientPaint)
+    canvas.restore()
+
+    // ── Info text in center ──────────────────────────────────────────────
+    val infoPaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.BLACK
+        textSize = 2f * pxPerMm
+        isAntiAlias = true
+        textAlign = android.graphics.Paint.Align.CENTER
+    }
+    canvas.drawText("${width} × ${height} px", cx, cy + (12f * pxPerMm), infoPaint)
+    canvas.drawText("50 × 76 mm", cx, cy + (20f * pxPerMm), infoPaint)
+    canvas.drawText("%.0f dpi".format((dpiX + dpiY) / 2), cx, cy + (28f * pxPerMm), infoPaint)
+
+    return bitmap
 }

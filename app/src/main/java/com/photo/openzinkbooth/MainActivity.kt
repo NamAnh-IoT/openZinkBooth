@@ -404,7 +404,10 @@ fun ZinkBoothApp(viewModel: ZinkBoothViewModel) {
                         onBack               = viewModel::navigateBack,
                         lastPrintBitmap      = lastPrint,
                         debugDryRun          = state.debugDryRun,
-                        onToggleDebugDryRun  = viewModel::toggleDebugDryRun
+                        onToggleDebugDryRun  = viewModel::toggleDebugDryRun,
+                        onTestPrint          = viewModel::printTestImage,
+                        printWidth           = state.printerPrintWidth,
+                        printHeight          = state.printerPrintHeight
                     )
                 }
             }

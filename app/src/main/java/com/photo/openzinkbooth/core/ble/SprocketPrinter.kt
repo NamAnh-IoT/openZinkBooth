@@ -681,7 +681,7 @@ class SprocketPrinter(private val context: Context) {
     // over the RFCOMM channel (SprocketRfcomm).
     // The BLE GATT channel handles status polling.
     // ---------------------------------------------------------------------------
-    suspend fun print(bitmap: Bitmap, color: UserColor = UserColor.GREEN, isDryRun: Boolean = false) {
+    suspend fun print(bitmap: Bitmap, color: UserColor = UserColor.GREEN) {
         if (!control.isConnected) {
             _state.value = SprocketState.Error("BT Classic socket not connected")
             return
@@ -701,13 +701,9 @@ class SprocketPrinter(private val context: Context) {
             LogManager.d(TAG, "Image prepared: ${jpeg.size} bytes " +
                     "(${_detectedModel.width}x${_detectedModel.height} @ q${_detectedModel.jpegQuality})")
 
-            if (!isDryRun) {
-                // Delegate the actual print to SprocketRfcomm (RFCOMM)
-                control.print(jpeg, color) { progress ->
-                    _state.value = SprocketState.Printing(progress)
-                }
-            } else {
-                LogManager.d(TAG, "DRY RUN – skipping actual print, bitmap stored for preview")
+            // Delegate the actual print to SprocketRfcomm (RFCOMM)
+            control.print(jpeg, color) { progress ->
+                _state.value = SprocketState.Printing(progress)
             }
 
             LogManager.d(TAG, "Print complete!")
@@ -944,6 +940,16 @@ class SprocketPrinter(private val context: Context) {
             currentJob = currentJob,
             queueStatus = queueStatus
         )
+    }
+
+    /**
+     * Renders [bitmap] through the same prepareImage pipeline used for
+     * printing, populating [lastPrintBitmap] with the result. Used by the
+     * dry-run mode in the debug About screen so the user can inspect what
+     * the printer would have received without consuming Zink paper.
+     */
+    fun prepareImageForPreview(bitmap: Bitmap) {
+        prepareImage(bitmap, _detectedModel)
     }
 
     // ---------------------------------------------------------------------------

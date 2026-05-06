@@ -110,7 +110,7 @@ data class ZinkUiState(
     val printerConnectionState: PrinterConnectionState = PrinterConnectionState.DISCONNECTED,
     val printerModelName: String   = "",          // populated from settings or after connect
     val printerPrintWidth: Int     = 640,         // native print width in pixels
-    val printerPrintHeight: Int    = 960,         // native print height in pixels
+    val printerPrintHeight: Int    = 1002,         // native print height in pixels
     val printerError: String?      = null,        // shown while state == ERROR
 
     // ── Printer status (from StatusSnapshot after connect) ────────────────────
