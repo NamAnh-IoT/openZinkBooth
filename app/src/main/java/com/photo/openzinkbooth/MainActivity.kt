@@ -25,6 +25,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
+import androidx.compose.material3.windowsizeclass.WindowSizeClass
+import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.PickVisualMediaRequest
@@ -74,20 +77,21 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: ZinkBoothViewModel by viewModels()
 
+    @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val state by viewModel.state.collectAsState()
+            val state           by viewModel.state.collectAsState()
+            val windowSizeClass = calculateWindowSizeClass(this)
             ZinkBoothTheme(dynamicColor = state.dynamicColor) {
-                ZinkBoothApp(viewModel)
+                ZinkBoothApp(viewModel, windowSizeClass)
             }
         }
     }
 
     override fun onStop() {
         super.onStop()
-        // Close the diff fence so the file is valid Markdown when the app is backgrounded
         LogManager.closeMarkdownBlock()
     }
 }
@@ -97,7 +101,10 @@ class MainActivity : ComponentActivity() {
 // ---------------------------------------------------------------------------
 
 @Composable
-fun ZinkBoothApp(viewModel: ZinkBoothViewModel) {
+fun ZinkBoothApp(
+    viewModel: ZinkBoothViewModel,
+    windowSizeClass: WindowSizeClass? = null
+) {
     val state   by viewModel.state.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -309,6 +316,7 @@ fun ZinkBoothApp(viewModel: ZinkBoothViewModel) {
                             state             = state,
                             onTimerSelected   = viewModel::setTimer,
                             onCapturePressed  = { viewModel.onCapturePressed(camera.triggerCapture) },
+                            windowSizeClass   = windowSizeClass,
                             viewfinderContent = {
                                 CameraPreview(
                                     previewView = camera.previewView,
@@ -336,6 +344,7 @@ fun ZinkBoothApp(viewModel: ZinkBoothViewModel) {
                             onPrint            = viewModel::enqueuePrintFromPreview,
                             printWidth         = state.printerPrintWidth,
                             printHeight        = state.printerPrintHeight,
+                            windowSizeClass    = windowSizeClass,
                             title              = if (state.previewFromPicker)
                                 stringResource(R.string.preview_open_photo_title)
                             else

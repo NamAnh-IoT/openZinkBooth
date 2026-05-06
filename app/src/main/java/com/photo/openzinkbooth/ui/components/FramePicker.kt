@@ -80,48 +80,92 @@ fun FramePicker(
     onSelectCustom: (String) -> Unit,
     loadCustomBitmap: (String) -> Bitmap?,
     listState: LazyListState = rememberLazyListState(),
+    thumbWidth: androidx.compose.ui.unit.Dp = 72.dp,
+    vertical: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    // Pre-crop the photo to 2:3 once – all thumbnails share the same cropped base.
-    // This is the same crop that will be applied at print time, so thumbnails
-    // always match the actual output.
     val cropped = remember(photo) {
-        centerCropToRatio(ensurePortrait(photo), ZINK_RATIO_W, ZINK_RATIO_H)
+        centerCropToRatio(photo, ZINK_RATIO_W, ZINK_RATIO_H)
     }
 
-    Column(modifier = modifier) {
-        LazyRow(
-            state                 = listState,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding        = PaddingValues(horizontal = 2.dp)
+    if (vertical) {
+        androidx.compose.foundation.lazy.LazyColumn(
+            state               = listState,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding      = PaddingValues(vertical = 2.dp),
+            modifier            = modifier
         ) {
             item {
                 FrameThumbBuiltIn(
-                    photo   = cropped,
-                    frame   = FrameType.NONE,
-                    active  = selected == FrameType.NONE && selectedCustomId == null,
-                    onClick = { onSelectBuiltIn(FrameType.NONE) }
+                    photo      = cropped,
+                    frame      = FrameType.NONE,
+                    active     = selected == FrameType.NONE && selectedCustomId == null,
+                    thumbWidth = thumbWidth,
+                    onClick    = { onSelectBuiltIn(FrameType.NONE) }
                 )
             }
-
             items(entries.filter { it.visible }) { entry ->
                 when (entry) {
                     is FrameEntry.BuiltIn -> FrameThumbBuiltIn(
-                        photo   = cropped,
-                        frame   = entry.frameType,
-                        active  = selected == entry.frameType && selectedCustomId == null,
-                        onClick = { onSelectBuiltIn(entry.frameType) }
+                        photo      = cropped,
+                        frame      = entry.frameType,
+                        active     = selected == entry.frameType && selectedCustomId == null,
+                        thumbWidth = thumbWidth,
+                        onClick    = { onSelectBuiltIn(entry.frameType) }
                     )
                     is FrameEntry.Custom -> {
                         val bitmap = remember(entry.filename) { loadCustomBitmap(entry.filename) }
                         if (bitmap != null) {
                             FrameThumbCustom(
-                                photo    = cropped,
-                                overlay  = bitmap,
-                                label    = entry.filename,
-                                active   = selectedCustomId == entry.id,
-                                onClick  = { onSelectCustom(entry.id) }
+                                photo      = cropped,
+                                overlay    = bitmap,
+                                label      = entry.filename,
+                                active     = selectedCustomId == entry.id,
+                                thumbWidth = thumbWidth,
+                                onClick    = { onSelectCustom(entry.id) }
                             )
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        Column(modifier = modifier) {
+            LazyRow(
+                state                 = listState,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding        = PaddingValues(horizontal = 2.dp)
+            ) {
+                item {
+                    FrameThumbBuiltIn(
+                        photo      = cropped,
+                        frame      = FrameType.NONE,
+                        active     = selected == FrameType.NONE && selectedCustomId == null,
+                        thumbWidth = thumbWidth,
+                        onClick    = { onSelectBuiltIn(FrameType.NONE) }
+                    )
+                }
+                items(entries.filter { it.visible }) { entry ->
+                    when (entry) {
+                        is FrameEntry.BuiltIn -> FrameThumbBuiltIn(
+                            photo      = cropped,
+                            frame      = entry.frameType,
+                            active     = selected == entry.frameType && selectedCustomId == null,
+                            thumbWidth = thumbWidth,
+                            onClick    = { onSelectBuiltIn(entry.frameType) }
+                        )
+                        is FrameEntry.Custom -> {
+                            val bitmap = remember(entry.filename) { loadCustomBitmap(entry.filename) }
+                            if (bitmap != null) {
+                                FrameThumbCustom(
+                                    photo      = cropped,
+                                    overlay    = bitmap,
+                                    label      = entry.filename,
+                                    active     = selectedCustomId == entry.id,
+                                    thumbWidth = thumbWidth,
+                                    onClick    = { onSelectCustom(entry.id) }
+                                )
+                            }
                         }
                     }
                 }
@@ -135,14 +179,16 @@ private fun FrameThumbBuiltIn(
     photo: Bitmap,
     frame: FrameType,
     active: Boolean,
+    thumbWidth: androidx.compose.ui.unit.Dp = 72.dp,
     onClick: () -> Unit
 ) {
     val composed = remember(photo, frame) { composeFrameThumbnail(photo, frame) }
     FrameThumbShell(
-        bitmap  = composed,
-        label   = stringResource(frame.labelRes),
-        active  = active,
-        onClick = onClick
+        bitmap     = composed,
+        label      = stringResource(frame.labelRes),
+        active     = active,
+        thumbWidth = thumbWidth,
+        onClick    = onClick
     )
 }
 
@@ -152,10 +198,11 @@ private fun FrameThumbCustom(
     overlay: Bitmap,
     label: String,
     active: Boolean,
+    thumbWidth: androidx.compose.ui.unit.Dp = 72.dp,
     onClick: () -> Unit
 ) {
     val composed = remember(photo, overlay) { applyCustomFrameThumbnail(photo, overlay) }
-    FrameThumbShell(bitmap = composed, label = label, active = active, onClick = onClick)
+    FrameThumbShell(bitmap = composed, label = label, active = active, thumbWidth = thumbWidth, onClick = onClick)
 }
 
 @Composable
@@ -163,6 +210,7 @@ private fun FrameThumbShell(
     bitmap: Bitmap,
     label: String,
     active: Boolean,
+    thumbWidth: androidx.compose.ui.unit.Dp = 72.dp,
     onClick: () -> Unit
 ) {
     val scale by animateFloatAsState(if (active) 1.05f else 1f, label = "scale")
@@ -171,7 +219,7 @@ private fun FrameThumbShell(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier
-            .width(72.dp)
+            .width(thumbWidth)
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(4.dp)
@@ -234,20 +282,8 @@ private fun FrameThumbShell(
  * Produces a thumbnail-sized bitmap with the frame applied.
  * The source is cropped to the Zink 2:3 ratio before compositing.
  */
-// ---------------------------------------------------------------------------
-// Orientation helper – rotates landscape bitmaps to portrait before framing.
-// Must be called before centerCropToRatio so the ratio crop is correct.
-// ---------------------------------------------------------------------------
-private fun ensurePortrait(source: Bitmap): Bitmap =
-    if (source.width > source.height)
-        android.graphics.Bitmap.createBitmap(
-            source, 0, 0, source.width, source.height,
-            android.graphics.Matrix().apply { postRotate(90f) }, true
-        )
-    else source
-
 fun composeFrameThumbnail(source: Bitmap, frame: FrameType): Bitmap {
-    val cropped = centerCropToRatio(ensurePortrait(source), ZINK_RATIO_W, ZINK_RATIO_H)
+    val cropped = centerCropToRatio(source, ZINK_RATIO_W, ZINK_RATIO_H)
     return composeFrameInternal(cropped, frame, FRAME_THUMB_W, FRAME_THUMB_H)
 }
 
@@ -257,19 +293,19 @@ fun composeFrameThumbnail(source: Bitmap, frame: FrameType): Bitmap {
  * Pass the printer's native resolution as [targetW] × [targetH].
  */
 fun applyFrameForPrint(source: Bitmap, frame: FrameType, targetW: Int, targetH: Int): Bitmap {
-    val cropped = centerCropToRatio(ensurePortrait(source), ZINK_RATIO_W, ZINK_RATIO_H)
+    val cropped = centerCropToRatio(source, ZINK_RATIO_W, ZINK_RATIO_H)
     return composeFrameInternal(cropped, frame, targetW, targetH)
 }
 
 /** Overlays a custom PNG frame onto the photo at thumbnail size. */
 fun applyCustomFrameThumbnail(photo: Bitmap, frameBitmap: Bitmap): Bitmap {
-    val cropped = centerCropToRatio(ensurePortrait(photo), ZINK_RATIO_W, ZINK_RATIO_H)
+    val cropped = centerCropToRatio(photo, ZINK_RATIO_W, ZINK_RATIO_H)
     return applyCustomFrame(cropped, frameBitmap, FRAME_THUMB_W, FRAME_THUMB_H)
 }
 
 /** Overlays a custom PNG frame onto the photo at print size. */
 fun applyCustomFrameForPrint(photo: Bitmap, frameBitmap: Bitmap, targetW: Int, targetH: Int): Bitmap {
-    val cropped = centerCropToRatio(ensurePortrait(photo), ZINK_RATIO_W, ZINK_RATIO_H)
+    val cropped = centerCropToRatio(photo, ZINK_RATIO_W, ZINK_RATIO_H)
     return applyCustomFrame(cropped, frameBitmap, targetW, targetH)
 }
 

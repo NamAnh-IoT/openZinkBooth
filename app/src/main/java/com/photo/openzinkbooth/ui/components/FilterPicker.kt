@@ -58,21 +58,43 @@ fun FilterPicker(
     selected: FilterType,
     onSelect: (FilterType) -> Unit,
     listState: LazyListState = rememberLazyListState(),
+    thumbWidth: androidx.compose.ui.unit.Dp = 72.dp,
+    vertical: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier) {
-        LazyRow(
-            state                 = listState,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding        = PaddingValues(horizontal = 2.dp)
+    if (vertical) {
+        androidx.compose.foundation.lazy.LazyColumn(
+            state                = listState,
+            verticalArrangement  = Arrangement.spacedBy(8.dp),
+            contentPadding       = PaddingValues(vertical = 2.dp),
+            modifier             = modifier
         ) {
             items(FilterType.entries) { filter ->
                 FilterThumb(
-                    photo    = photo,
-                    filter   = filter,
-                    active   = filter == selected,
-                    onClick  = { onSelect(filter) }
+                    photo      = photo,
+                    filter     = filter,
+                    active     = filter == selected,
+                    thumbWidth = thumbWidth,
+                    onClick    = { onSelect(filter) }
                 )
+            }
+        }
+    } else {
+        Column(modifier = modifier) {
+            LazyRow(
+                state                 = listState,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding        = PaddingValues(horizontal = 2.dp)
+            ) {
+                items(FilterType.entries) { filter ->
+                    FilterThumb(
+                        photo      = photo,
+                        filter     = filter,
+                        active     = filter == selected,
+                        thumbWidth = thumbWidth,
+                        onClick    = { onSelect(filter) }
+                    )
+                }
             }
         }
     }
@@ -83,6 +105,7 @@ private fun FilterThumb(
     photo: Bitmap,
     filter: FilterType,
     active: Boolean,
+    thumbWidth: androidx.compose.ui.unit.Dp = 72.dp,
     onClick: () -> Unit
 ) {
     val filtered = remember(photo, filter) {
@@ -98,7 +121,7 @@ private fun FilterThumb(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier
-            .width(72.dp)
+            .width(thumbWidth)
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(4.dp)
