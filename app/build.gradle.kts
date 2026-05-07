@@ -1,5 +1,6 @@
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Properties
 import java.util.TimeZone
 
 plugins {
@@ -15,10 +16,35 @@ android {
         applicationId = "com.photo.openzinkbooth"
         minSdk = 31
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = 2
+        versionName = "0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+
+    signingConfigs {
+        create("release") {
+            val keystorePropertiesFile = rootProject.file("../openZinkBooth.keystore")
+            val keystoreProperties = Properties()
+
+            if (keystorePropertiesFile.exists()) {
+                keystorePropertiesFile.inputStream().use { input ->
+                    keystoreProperties.load(input)
+                }
+            }
+
+            if (keystoreProperties.isNotEmpty()) {
+                storeFile = file(rootDir.canonicalPath + "/" + keystoreProperties.getProperty("releaseKeyStore"))
+                keyAlias = keystoreProperties.getProperty("releaseKeyAlias")
+                keyPassword = keystoreProperties.getProperty("releaseKeyPassword")
+                storePassword = keystoreProperties.getProperty("releaseStorePassword")
+            }
+        }
     }
 
     buildTypes {
@@ -33,6 +59,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
