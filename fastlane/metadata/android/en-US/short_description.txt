@@ -1,0 +1,1 @@
+An easy-to-use photo booth app for capturing and instantly printing photos with HP Sprocket

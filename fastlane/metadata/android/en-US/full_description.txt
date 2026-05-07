@@ -1,0 +1,12 @@
+An easy-to-use photo booth app for capturing and instantly printing photos with HP Sprocket
+
+Summary:
+* Easy to Use: Capture, preview and print in three taps — a clean, intuitive interface makes it accessible for everyone.
+* Direct Printing: Print directly to your HP Sprocket Zink printer over Bluetooth.
+* Filter & Frame Library: Choose from six built-in filters and five frame styles including a classic Polaroid look, filmstrip, confetti and hearts — or upload your own custom PNG overlays.
+* Custom Frame Manager: Add, reorder, show/hide and delete custom PNG frames with alpha transparency using an intuitive drag-and-drop interface.
+* Responsive Layouts: Optimized for smartphones and tablets in both portrait and landscape orientations — the interface adapts seamlessly to any screen size.
+* Smart Auto-Connect: Remembers your last paired printer and reconnects automatically on startup, with automatic retry on unexpected disconnects.
+* Full Printer Control: Adjust sleep timer, auto-off, LED colour and other printer settings directly from within the app.
+* Open Gallery Support: Print any photo from your gallery, not just freshly taken ones.
+* Material You Design: Full Material 3 theming with dynamic colour support.
