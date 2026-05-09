@@ -311,8 +311,6 @@ object LogManager {
                 writer.append("| Device | ${Build.MANUFACTURER} ${Build.MODEL} |\n")
                 writer.append("| Android | ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) |\n")
                 writer.append("| Build ID | ${Build.DISPLAY} |\n")
-                writer.append("| Build Time | ${BuildConfig.BUILD_TIME_UTC} |\n")
-                writer.append("| Git SHA | ${BuildConfig.GIT_SHA} |\n")
                 writer.append("\n")
                 // Open a ```diff block; subsequent log lines use +/-/!/… prefixes.
                 writer.append("```diff\n")

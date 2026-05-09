@@ -1,7 +1,4 @@
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Properties
-import java.util.TimeZone
 
 plugins {
     alias(libs.plugins.android.application)
@@ -16,8 +13,8 @@ android {
         applicationId = "com.photo.openzinkbooth"
         minSdk = 31
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.3"
+        versionCode = 4
+        versionName = "0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -48,11 +45,6 @@ android {
     }
 
     buildTypes {
-        configureEach {
-            buildConfigField("String", "GIT_SHA", "\"${gitSha()}\"")
-            buildConfigField("String", "BUILD_TIME_UTC", "\"${buildTimeUtc()}\"")
-        }
-
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -118,21 +110,4 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
-}
-
-fun safeExec(vararg cmd: String): String = try {
-    val p = ProcessBuilder(*cmd).redirectErrorStream(true).start()
-    p.inputStream.bufferedReader().use { it.readText() }.trim().ifEmpty { "unknown" }
-} catch (_: Exception) { "unknown" }
-
-fun gitSha(): String {
-    System.getenv("GIT_SHA")?.takeIf { it.isNotBlank() }?.let { return it }
-    return safeExec("git", "rev-parse", "--short", "HEAD")
-}
-
-fun buildTimeUtc(): String {
-    System.getenv("BUILD_TIME_UTC")?.takeIf { it.isNotBlank() }?.let { return it }
-    val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'")
-    sdf.timeZone = TimeZone.getTimeZone("UTC")
-    return sdf.format(Date())
 }
