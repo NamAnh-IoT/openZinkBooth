@@ -25,6 +25,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.photo.openzinkbooth.BuildConfig
+import com.photo.openzinkbooth.core.ble.PrintStatus
 import com.photo.openzinkbooth.core.ble.SprocketPrinter
 import com.photo.openzinkbooth.core.ble.SprocketState
 import com.photo.openzinkbooth.core.database.FrameEntry
@@ -202,8 +203,13 @@ class ZinkBoothViewModel(application: Application) : AndroidViewModel(applicatio
             _state.update {
                 it.copy(
                     batteryLevel = snapshot.batteryLevel,
+                    printStatus  = snapshot.printStatus,
                     paperEmpty   = snapshot.printStatus ==
-                            com.photo.openzinkbooth.core.ble.PrintStatus.OUT_OF_PAPER,
+                            PrintStatus.OUT_OF_PAPER ||
+                            snapshot.printStatus ==
+                            PrintStatus.NO_SUPPLIES_DETECTED ||
+                            snapshot.printStatus ==
+                            PrintStatus.OUT_OF_SUPPLIES,
                 )
             }
         }

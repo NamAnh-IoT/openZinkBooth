@@ -30,11 +30,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.photo.openzinkbooth.R
+import com.photo.openzinkbooth.core.ble.PrintStatus
 import com.photo.openzinkbooth.ui.viewmodel.PrinterConnectionState
 import com.photo.openzinkbooth.ui.viewmodel.ZinkUiState
 
@@ -134,6 +136,76 @@ fun TopBarStatus(
 }
 
 // ---------------------------------------------------------------------------
+// Printer status severity – drives pill colour in the READY state.
+// NORMAL  = green, tappable (disconnect)
+// WARNING = amber, informational only
+// ERROR   = red,   informational only
+// ---------------------------------------------------------------------------
+
+private enum class StatusSeverity { NORMAL, WARNING, ERROR }
+
+private data class StatusDisplay(
+    val icon:     ImageVector,
+    val labelRes: Int,
+    val severity: StatusSeverity
+)
+
+// Maps every PrintStatus to a visual representation shown inside the
+// connection pill when the printer is READY.
+private fun statusDisplay(status: PrintStatus): StatusDisplay = when (status) {
+
+    // ── Normal / ready to print ───────────────────────────────────────────
+    PrintStatus.IDLE,
+    PrintStatus.UNKNOWN          -> StatusDisplay(
+        Icons.Outlined.Bluetooth, R.string.printer_connected, StatusSeverity.NORMAL
+    )
+    PrintStatus.PREPARING,
+    PrintStatus.PAPER_PICK,
+    PrintStatus.MULTI_PAGE_PICK  -> StatusDisplay(
+        Icons.Outlined.HourglassEmpty, R.string.printer_connected, StatusSeverity.NORMAL
+    )
+    PrintStatus.PRINTING         -> StatusDisplay(
+        Icons.Outlined.Print, R.string.printer_printing, StatusSeverity.NORMAL
+    )
+
+    // ── Warning – printable but needs attention ───────────────────────────
+    PrintStatus.CALIBRATING      -> StatusDisplay(
+        Icons.Outlined.Tune, R.string.printer_status_calibrating, StatusSeverity.WARNING
+    )
+    PrintStatus.TRAY_OPEN        -> StatusDisplay(
+        Icons.Outlined.Inbox, R.string.printer_status_tray_open, StatusSeverity.WARNING
+    )
+    PrintStatus.NO_TRAY          -> StatusDisplay(
+        Icons.Outlined.MoveToInbox, R.string.printer_status_no_tray, StatusSeverity.WARNING
+    )
+    PrintStatus.TRAY_MISALIGNED  -> StatusDisplay(
+        Icons.Outlined.Inbox, R.string.printer_status_tray_misaligned, StatusSeverity.WARNING
+    )
+
+    // ── Error – not ready to print ────────────────────────────────────────
+    PrintStatus.OUT_OF_PAPER,
+    PrintStatus.OUT_OF_SUPPLIES,
+    PrintStatus.NO_SUPPLIES_DETECTED -> StatusDisplay(
+        Icons.Outlined.LayersClear, R.string.topbar_paper_empty, StatusSeverity.ERROR
+    )
+    PrintStatus.PAPER_JAM            -> StatusDisplay(
+        Icons.Outlined.Block, R.string.printer_status_paper_jam, StatusSeverity.ERROR
+    )
+    PrintStatus.OVERHEATING          -> StatusDisplay(
+        Icons.Outlined.DeviceThermostat, R.string.printer_status_overheating, StatusSeverity.ERROR
+    )
+    PrintStatus.FEED_PATH_OBSTRUCTED -> StatusDisplay(
+        Icons.Outlined.Warning, R.string.printer_status_obstructed, StatusSeverity.ERROR
+    )
+    PrintStatus.BATTERY_CRITICAL     -> StatusDisplay(
+        Icons.Outlined.BatteryAlert, R.string.printer_status_battery_critical, StatusSeverity.ERROR
+    )
+    PrintStatus.UNRECOVERABLE_ERROR  -> StatusDisplay(
+        Icons.Outlined.ErrorOutline, R.string.printer_status_error, StatusSeverity.ERROR
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Connection pill – animates between connection states
 // ---------------------------------------------------------------------------
 
@@ -142,16 +214,17 @@ fun ConnectionPill(
     state: ZinkUiState,
     onBluetoothRequest: () -> Unit,    // BLUETOOTH_DISABLED – open system BT dialog
     onOpenAppSettings: () -> Unit,     // BLUETOOTH_PERMISSION_DENIED – open app settings
-    onDisconnect: () -> Unit,          // READY – disconnect from printer
+    onDisconnect: () -> Unit,          // READY + NORMAL status – disconnect from printer
     onReconnect: () -> Unit,           // NOT_FOUND / ERROR / DISCONNECTED – retry scan
     modifier: Modifier = Modifier
 ) {
+    // Animate whenever either the connection state or the print status changes
     AnimatedContent(
-        targetState   = state.printerConnectionState,
+        targetState    = state.printerConnectionState to state.printStatus,
         transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(300)) },
-        label         = "connection_pill",
-        modifier      = modifier
-    ) { connectionState ->
+        label          = "connection_pill",
+        modifier       = modifier
+    ) { (connectionState, printStatus) ->
         when (connectionState) {
 
             // ── Busy states – not tappable ────────────────────────────────────
@@ -184,12 +257,37 @@ fun ConnectionPill(
                 }
             }
 
-            // ── Connected – tap to disconnect ─────────────────────────────────
+            // ── Connected – colour driven by printer status ───────────────────
             PrinterConnectionState.READY -> {
+                val display = statusDisplay(printStatus)
+                val isNormal = display.severity == StatusSeverity.NORMAL
+                val pillColor = when (display.severity) {
+                    StatusSeverity.NORMAL  -> MaterialTheme.colorScheme.primaryContainer
+                    StatusSeverity.WARNING -> MaterialTheme.colorScheme.tertiaryContainer
+                    StatusSeverity.ERROR   -> MaterialTheme.colorScheme.errorContainer
+                }
+                val iconTint = when (display.severity) {
+                    StatusSeverity.NORMAL  -> MaterialTheme.colorScheme.onPrimaryContainer
+                    StatusSeverity.WARNING -> MaterialTheme.colorScheme.onTertiaryContainer
+                    StatusSeverity.ERROR   -> MaterialTheme.colorScheme.onErrorContainer
+                }
+                val textColor = when (display.severity) {
+                    StatusSeverity.NORMAL  -> MaterialTheme.colorScheme.onPrimaryContainer
+                    StatusSeverity.WARNING -> MaterialTheme.colorScheme.onTertiaryContainer
+                    StatusSeverity.ERROR   -> MaterialTheme.colorScheme.onErrorContainer
+                }
+                // Show model name when idle and normal, otherwise show status label
+                val label = if (isNormal && printStatus == PrintStatus.IDLE &&
+                    state.printerModelName.isNotBlank())
+                    state.printerModelName
+                else
+                    stringResource(display.labelRes)
+
                 Surface(
-                    onClick  = onDisconnect,
+                    onClick  = if (isNormal) onDisconnect else { {} },
+                    enabled  = isNormal,
                     shape    = CircleShape,
-                    color    = MaterialTheme.colorScheme.primaryContainer,
+                    color    = pillColor,
                     modifier = Modifier.height(32.dp)
                 ) {
                     Row(
@@ -198,17 +296,17 @@ fun ConnectionPill(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Bluetooth,
+                            imageVector        = display.icon,
                             contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            modifier           = Modifier.size(14.dp),
+                            tint               = iconTint
                         )
                         Text(
-                            text  = state.printerModelName.ifBlank {
-                                stringResource(R.string.printer_connected)
-                            },
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            text     = label,
+                            style    = MaterialTheme.typography.labelMedium,
+                            color    = textColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -329,54 +427,6 @@ fun ConnectionPill(
                     }
                 }
             }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// StatusPill – no longer used in ConnectionPill but kept for potential reuse
-// ---------------------------------------------------------------------------
-
-@Composable
-fun StatusPill(
-    connected: Boolean,
-    modelName: String,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        shape    = CircleShape,
-        color    = if (connected)
-            MaterialTheme.colorScheme.secondaryContainer
-        else
-            MaterialTheme.colorScheme.surfaceVariant,
-        modifier = modifier.height(32.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Icon(
-                imageVector = if (connected) Icons.Outlined.CheckCircle
-                else Icons.Outlined.Warning,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = if (connected)
-                    MaterialTheme.colorScheme.tertiary
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text  = if (connected) modelName
-                else stringResource(R.string.printer_not_connected),
-                style = MaterialTheme.typography.labelMedium,
-                color = if (connected)
-                    MaterialTheme.colorScheme.onSecondaryContainer
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
     }
 }

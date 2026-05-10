@@ -79,6 +79,16 @@
     <string name="printer_not_found">No printer found</string>
     <string name="printer_no_printer_selected">No printer selected</string>
     <string name="printer_found_devices">Found printers</string>
+    <string name="printer_printing">Printing...</string>
+    <string name="printer_status_calibrating">Calibrating</string>
+    <string name="printer_status_tray_open">Tray open</string>
+    <string name="printer_status_no_tray">No tray</string>
+    <string name="printer_status_tray_misaligned">Tray misaligned</string>
+    <string name="printer_status_paper_jam">Paper jam</string>
+    <string name="printer_status_overheating">Overheating</string>
+    <string name="printer_status_obstructed">Obstructed</string>
+    <string name="printer_status_battery_critical">Battery critical</string>
+    <string name="printer_status_error">Printer error</string>
     <string name="about_version">Version %1$s (%2$d)</string>
     <string name="about_project_title">Project</string>
     <string name="about_maintainer_label">Maintainer</string>

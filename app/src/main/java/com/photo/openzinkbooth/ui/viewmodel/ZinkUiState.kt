@@ -21,6 +21,7 @@ package com.photo.openzinkbooth.ui.viewmodel
 import android.graphics.Bitmap
 import android.net.Uri
 import com.photo.openzinkbooth.R
+import com.photo.openzinkbooth.core.ble.PrintStatus
 
 // ---------------------------------------------------------------------------
 // Remote shutter key options
@@ -128,8 +129,12 @@ data class ZinkUiState(
     val printerError: String?      = null,        // shown while state == ERROR
 
     // ── Printer status (from StatusSnapshot after connect) ────────────────────
-    val batteryLevel: Int?         = null,        // 0–100, null = unknown
-    val paperEmpty: Boolean        = false,       // true = OUT_OF_PAPER
+    // batteryLevel: 0–100, null = unknown
+    val batteryLevel: Int?         = null,
+    // paperEmpty: true when printer reports any out-of-paper condition
+    val paperEmpty: Boolean        = false,
+    // printStatus: last known printer status, used to drive the connection pill
+    val printStatus: PrintStatus = PrintStatus.UNKNOWN,
     // paperCount: remaining sheets, -1 = never refilled so don't show count
     val paperCount: Int            = -1,
 
@@ -160,7 +165,7 @@ data class ZinkUiState(
     // True when PreviewScreen was opened via the photo picker (changes title)
     val previewFromPicker: Boolean   = false,
 ) {
-    // Convenience helpers used by TopBar and other components
+    // Convenience helpers used by TopBar components
     val printerConnected: Boolean
         get() = printerConnectionState == PrinterConnectionState.READY
 
