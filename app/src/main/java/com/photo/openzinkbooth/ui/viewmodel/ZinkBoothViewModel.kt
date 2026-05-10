@@ -82,6 +82,8 @@ class ZinkBoothViewModel(application: Application) : AndroidViewModel(applicatio
                         calibrationEnabled   = s.calibrationEnabled,
                         calibrationVScale    = s.calibrationVScale,
                         calibrationVOffset   = s.calibrationVOffset,
+                        remoteShutterEnabled = s.remoteShutterEnabled,
+                        remoteShutterKey     = RemoteShutterKey.fromName(s.remoteShutterKey),
                     )
                 }
                 // Push calibration values to printer immediately
@@ -239,7 +241,17 @@ class ZinkBoothViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch { settings.setTimer(seconds) }
     }
 
+    // Stores the camera capture lambda so the remote shutter can trigger it
+    // without needing a reference to the Composable scope.
+    private var _lastTriggerCapture: (() -> Unit)? = null
+
+    /** Called as soon as the camera is ready to register the capture lambda. */
+    fun registerTriggerCapture(takePicture: () -> Unit) {
+        _lastTriggerCapture = takePicture
+    }
+
     fun onCapturePressed(takePicture: () -> Unit) {
+        _lastTriggerCapture = takePicture  // always keep latest reference
         val timer = _state.value.timerSeconds
         if (timer == 0) { takePicture(); return }
         countdownJob?.cancel()
@@ -522,6 +534,15 @@ class ZinkBoothViewModel(application: Application) : AndroidViewModel(applicatio
     fun toggleDebugDryRun() = _state.update { it.copy(debugDryRun = !it.debugDryRun) }
 
     /**
+     * Called when the Bluetooth remote shutter button is pressed.
+     * Follows the same path as tapping the on-screen shutter button.
+     */
+    fun onRemoteShutterPressed() {
+        val triggerCapture = _lastTriggerCapture ?: return
+        onCapturePressed(triggerCapture)
+    }
+
+    /**
      * Send a calibration test image directly to the printer, bypassing the
      * normal photo + frame pipeline. Honours debugDryRun: if enabled, runs
      * prepareImage to populate lastPrintBitmap but does NOT actually print.
@@ -605,6 +626,10 @@ class ZinkBoothViewModel(application: Application) : AndroidViewModel(applicatio
     fun setCalibrationEnabled(enabled: Boolean) = viewModelScope.launch { settings.setCalibrationEnabled(enabled) }
     fun setCalibrationVScale(scale: Float)       = viewModelScope.launch { settings.setCalibrationVScale(scale) }
     fun setCalibrationVOffset(offset: Int)       = viewModelScope.launch { settings.setCalibrationVOffset(offset) }
+
+    fun setRemoteShutterEnabled(enabled: Boolean) = viewModelScope.launch { settings.setRemoteShutterEnabled(enabled) }
+    fun setRemoteShutterKey(key: RemoteShutterKey) =
+        viewModelScope.launch { settings.setRemoteShutterKey(key.name) }
     fun setStorageUri(uri: Uri?)           = viewModelScope.launch { settings.setStorageUri(uri) }
 
     override fun onCleared() {

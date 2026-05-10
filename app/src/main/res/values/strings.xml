@@ -50,6 +50,12 @@
     <string name="settings_storage_none">No saving (tap to enable)</string>
     <string name="settings_storage_clear">Clear storage location</string>
     <string name="settings_storage_reset">Reset storage location</string>
+    <string name="settings_remote_shutter_enabled">Remote Shutter</string>
+    <string name="settings_remote_key_label">Trigger Key</string>
+    <string name="settings_remote_key_volume_up">Volume Up</string>
+    <string name="settings_remote_key_volume_down">Volume Down</string>
+    <string name="settings_remote_key_camera">Camera Button</string>
+    <string name="settings_remote_key_media_play">Play/Pause</string>
     <string name="printer_not_connected">Not connected</string>
     <string name="printer_connected">Connected</string>
     <string name="printer_connected_count">Connected · %1$d sheets</string>

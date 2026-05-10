@@ -33,6 +33,10 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,6 +45,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.photo.openzinkbooth.R
+import com.photo.openzinkbooth.ui.viewmodel.RemoteShutterKey
 import com.photo.openzinkbooth.ui.viewmodel.ZinkUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -56,6 +61,8 @@ fun SettingsScreen(
     onToggleDynamicColor: (Boolean) -> Unit,
     onToggleShutterSound: (Boolean) -> Unit,
     onStorageUriSelected: (Uri?) -> Unit,
+    onToggleRemoteShutter: (Boolean) -> Unit,
+    onSetRemoteShutterKey: (RemoteShutterKey) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -127,6 +134,20 @@ fun SettingsScreen(
                     checked  = state.flashEnabled,
                     onToggle = onToggleFlash
                 )
+                HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+                SettingsToggleRow(
+                    icon     = Icons.Outlined.SettingsRemote,
+                    label    = stringResource(R.string.settings_remote_shutter_enabled),
+                    checked  = state.remoteShutterEnabled,
+                    onToggle = onToggleRemoteShutter
+                )
+                if (state.remoteShutterEnabled) {
+                    HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+                    RemoteShutterKeyRow(
+                        selected = state.remoteShutterKey,
+                        onSelect = onSetRemoteShutterKey
+                    )
+                }
             }
 
             SettingsGroup(title = stringResource(R.string.settings_group_appearance)) {
@@ -439,4 +460,61 @@ private fun PrinterSettingsRow(
             )
         }
     }
+}
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RemoteShutterKeyRow(
+    selected: RemoteShutterKey,
+    onSelect: (RemoteShutterKey) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val keys = RemoteShutterKey.entries
+
+    ListItem(
+        leadingContent = {
+            Icon(
+                Icons.Outlined.Key,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        },
+        headlineContent = {
+            Text(
+                stringResource(R.string.settings_remote_key_label),
+                style = MaterialTheme.typography.bodyLarge
+            )
+        },
+        trailingContent = {
+            Box {
+                TextButton(onClick = { expanded = true }) {
+                    Text(
+                        text  = stringResource(selected.labelRes),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        Icons.Outlined.ArrowDropDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint     = MaterialTheme.colorScheme.primary
+                    )
+                }
+                DropdownMenu(
+                    expanded         = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    keys.forEach { key ->
+                        DropdownMenuItem(
+                            text         = { Text(stringResource(key.labelRes)) },
+                            onClick      = { onSelect(key); expanded = false },
+                            trailingIcon = if (key == selected) {
+                                { Icon(Icons.Outlined.Check, null, tint = MaterialTheme.colorScheme.primary) }
+                            } else null
+                        )
+                    }
+                }
+            }
+        }
+    )
 }

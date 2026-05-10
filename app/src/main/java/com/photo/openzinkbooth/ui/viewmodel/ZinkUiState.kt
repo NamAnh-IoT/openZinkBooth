@@ -23,6 +23,20 @@ import android.net.Uri
 import com.photo.openzinkbooth.R
 
 // ---------------------------------------------------------------------------
+// Remote shutter key options
+// ---------------------------------------------------------------------------
+enum class RemoteShutterKey(val keyCode: Int, val labelRes: Int) {
+    VOLUME_UP(android.view.KeyEvent.KEYCODE_VOLUME_UP,         R.string.settings_remote_key_volume_up),
+    VOLUME_DOWN(android.view.KeyEvent.KEYCODE_VOLUME_DOWN,     R.string.settings_remote_key_volume_down),
+    CAMERA(android.view.KeyEvent.KEYCODE_CAMERA,               R.string.settings_remote_key_camera),
+    MEDIA_PLAY(android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, R.string.settings_remote_key_media_play);
+
+    companion object {
+        fun fromName(name: String) = entries.firstOrNull { it.name == name } ?: VOLUME_UP
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Navigation screens
 // ---------------------------------------------------------------------------
 enum class Screen {
@@ -133,6 +147,9 @@ data class ZinkUiState(
     val calibrationEnabled: Boolean  = true,
     val calibrationVScale: Float     = 0.9524f,
     val calibrationVOffset: Int      = 46,
+    // Bluetooth remote shutter
+    val remoteShutterEnabled: Boolean = false,
+    val remoteShutterKey: RemoteShutterKey = RemoteShutterKey.VOLUME_UP,
 
     // ── Frames ────────────────────────────────────────────────────────────────
     // Ordered list of all frames (built-in + custom). NONE is always prepended

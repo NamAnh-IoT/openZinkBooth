@@ -24,6 +24,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import android.view.KeyEvent
 import androidx.activity.compose.setContent
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.WindowSizeClass
@@ -94,6 +95,24 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         LogManager.closeMarkdownBlock()
     }
+
+    /**
+     * Intercepts key events for the Bluetooth remote shutter.
+     * Only active when:
+     *   - Remote shutter is enabled in settings
+     *   - The camera screen is currently shown
+     * Returns true to consume the event (no volume change etc.).
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        val state = viewModel.state.value
+        if(state.remoteShutterEnabled &&
+            state.screen == Screen.CAMERA &&
+            keyCode == state.remoteShutterKey.keyCode) {
+                viewModel.onRemoteShutterPressed()
+                return true
+            }
+        return super.onKeyDown(keyCode, event)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +133,12 @@ fun ZinkBoothApp(
         shutterSoundEnabled = state.shutterSoundEnabled,
         onPhoto             = viewModel::onPhotoCaptured
     )
+
+    // Register the capture lambda immediately so the remote shutter works
+    // even before the user has tapped the on-screen shutter button.
+    LaunchedEffect(camera.triggerCapture) {
+        viewModel.registerTriggerCapture(camera.triggerCapture)
+    }
 
     // Photo picker – uses the Android Photo Picker (PickVisualMedia) which
     // opens directly in the device's image library. Available natively on
@@ -364,8 +389,10 @@ fun ZinkBoothApp(
                     onToggleFrontCamera      = viewModel::setFrontCamera,
                     onToggleFlash            = viewModel::setFlash,
                     onToggleDynamicColor     = viewModel::setDynamicColor,
-                    onToggleShutterSound     = viewModel::setShutterSound,
-                    onStorageUriSelected     = viewModel::setStorageUri
+                    onToggleShutterSound      = viewModel::setShutterSound,
+                    onStorageUriSelected      = viewModel::setStorageUri,
+                    onToggleRemoteShutter     = viewModel::setRemoteShutterEnabled,
+                    onSetRemoteShutterKey     = viewModel::setRemoteShutterKey
                 )
 
                 Screen.PRINTER_CONFIG -> {

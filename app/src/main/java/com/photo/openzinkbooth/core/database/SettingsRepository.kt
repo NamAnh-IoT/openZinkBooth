@@ -30,6 +30,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.photo.openzinkbooth.ui.viewmodel.RemoteShutterKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -61,6 +62,9 @@ data class SettingsData(
     val calibrationEnabled: Boolean  = true,
     val calibrationVScale: Float     = 0.9524f,  // 1/1.05 – vertical compression
     val calibrationVOffset: Int      = 46,        // top padding in pixels
+    // Bluetooth remote shutter
+    val remoteShutterEnabled: Boolean = false,
+    val remoteShutterKey: String      = "VOLUME_UP",
 ) {
     val storageUri: Uri? get() = storageUriString?.toUri()
 }
@@ -85,6 +89,8 @@ class SettingsRepository(private val context: Context) {
         private val KEY_CALIB_ENABLED      = booleanPreferencesKey("calib_enabled")
         private val KEY_CALIB_V_SCALE      = floatPreferencesKey("calib_v_scale")
         private val KEY_CALIB_V_OFFSET     = intPreferencesKey("calib_v_offset")
+        private val KEY_REMOTE_SHUTTER     = booleanPreferencesKey("remote_shutter_enabled")
+        private val KEY_REMOTE_SHUTTER_KEY = stringPreferencesKey("remote_shutter_key")
     }
 
     val settings: Flow<SettingsData> = context.dataStore.data
@@ -107,6 +113,8 @@ class SettingsRepository(private val context: Context) {
                 calibrationEnabled    = prefs[KEY_CALIB_ENABLED]   ?: true,
                 calibrationVScale     = prefs[KEY_CALIB_V_SCALE]   ?: 0.9524f,
                 calibrationVOffset    = prefs[KEY_CALIB_V_OFFSET]  ?: 46,
+                remoteShutterEnabled  = prefs[KEY_REMOTE_SHUTTER]  ?: false,
+                remoteShutterKey      = prefs[KEY_REMOTE_SHUTTER_KEY] ?: RemoteShutterKey.VOLUME_UP.name,
             )
         }
 
@@ -118,6 +126,12 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setCalibrationVOffset(offset: Int) =
         context.dataStore.edit { it[KEY_CALIB_V_OFFSET] = offset }
+
+    suspend fun setRemoteShutterEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[KEY_REMOTE_SHUTTER] = enabled }
+
+    suspend fun setRemoteShutterKey(key: String) =
+        context.dataStore.edit { it[KEY_REMOTE_SHUTTER_KEY] = key }
 
     suspend fun setDynamicColor(enabled: Boolean) =
         context.dataStore.edit { it[KEY_DYNAMIC_COLOR] = enabled }

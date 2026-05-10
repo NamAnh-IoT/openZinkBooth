@@ -49,6 +49,12 @@
     <string name="settings_storage_none">Kein Speichern (tippen zum Aktivieren)</string>
     <string name="settings_storage_clear">Speicherort löschen</string>
     <string name="settings_storage_reset">Speicherort zurücksetzen</string>
+    <string name="settings_remote_shutter_enabled">Fernauslöser</string>
+    <string name="settings_remote_key_label">Auslösetaste</string>
+    <string name="settings_remote_key_volume_up">Lautstärke hoch</string>
+    <string name="settings_remote_key_volume_down">Lautstärke runter</string>
+    <string name="settings_remote_key_camera">Kamerataste</string>
+    <string name="settings_remote_key_media_play">Play/Pause</string>
     <string name="printer_not_connected">Nicht verbunden</string>
     <string name="printer_connected">Verbunden</string>
     <string name="printer_connected_count">Verbunden · %1$d Blatt</string>
