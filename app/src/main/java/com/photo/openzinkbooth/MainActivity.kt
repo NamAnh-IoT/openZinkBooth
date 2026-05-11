@@ -370,6 +370,8 @@ fun ZinkBoothApp(
                             onCustomFrameSelected = viewModel::selectCustomFrame,
                             loadCustomBitmap   = viewModel::loadCustomFrameBitmap,
                             onPrint            = viewModel::enqueuePrintFromPreview,
+                            printerReady       = state.printerConnectionState == com.photo.openzinkbooth.ui.viewmodel.PrinterConnectionState.READY
+                                    || state.debugDryRun,
                             printWidth         = state.printerPrintWidth,
                             printHeight        = state.printerPrintHeight,
                             windowSizeClass    = windowSizeClass,

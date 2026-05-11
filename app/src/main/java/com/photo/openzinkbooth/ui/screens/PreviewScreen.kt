@@ -83,6 +83,7 @@ fun PreviewScreen(
     onCustomFrameSelected: (String) -> Unit,
     loadCustomBitmap: (String) -> Bitmap?,
     onPrint: (Bitmap) -> Unit,
+    printerReady: Boolean = true,
     printWidth: Int  = 640,
     printHeight: Int = 1002,
     windowSizeClass: WindowSizeClass? = null,
@@ -143,21 +144,21 @@ fun PreviewScreen(
             isPhoneLandscape -> PreviewLandscapeCompact(
                 previewBitmap, photo, selectedFilter, selectedFrame, selectedCustomId,
                 frameEntries, printWidth, printHeight,
-                filterListState, frameListState,
+                filterListState, frameListState, printerReady,
                 onFilterSelected, onFrameSelected, onCustomFrameSelected, loadCustomBitmap,
                 { onPrint(previewBitmap) }, contentModifier
             )
             isLandscape -> PreviewLandscapeWide(
                 previewBitmap, photo, selectedFilter, selectedFrame, selectedCustomId,
                 frameEntries, printWidth, printHeight, widthClass,
-                filterListState, frameListState,
+                filterListState, frameListState, printerReady,
                 onFilterSelected, onFrameSelected, onCustomFrameSelected, loadCustomBitmap,
                 { onPrint(previewBitmap) }, contentModifier
             )
             else -> PreviewPortrait(
                 previewBitmap, photo, selectedFilter, selectedFrame, selectedCustomId,
                 frameEntries, printWidth, printHeight, widthClass,
-                filterListState, frameListState,
+                filterListState, frameListState, printerReady,
                 onFilterSelected, onFrameSelected, onCustomFrameSelected, loadCustomBitmap,
                 { onPrint(previewBitmap) }, contentModifier
             )
@@ -182,6 +183,7 @@ private fun PreviewPortrait(
     widthClass: WindowWidthSizeClass,
     filterListState: LazyListState,
     frameListState: LazyListState,
+    printerReady: Boolean,
     onFilterSelected: (FilterType) -> Unit,
     onFrameSelected: (FrameType) -> Unit,
     onCustomFrameSelected: (String) -> Unit,
@@ -260,12 +262,21 @@ private fun PreviewPortrait(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Print button – centred, never fillMaxWidth
+        // Print button — disabled with hint when printer is not connected
+        if (!printerReady) {
+            Text(
+                text  = stringResource(R.string.preview_printer_not_connected),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
         ZinkActionButton(
             icon               = Icons.Outlined.Print,
             label              = stringResource(R.string.preview_print_button),
             contentDescription = stringResource(R.string.preview_print_button),
             onClick            = onPrint,
+            enabled            = printerReady,
             modifier           = Modifier.padding(bottom = 16.dp)
         )
     }
@@ -288,6 +299,7 @@ private fun PreviewLandscapeCompact(
     printHeight: Int,
     filterListState: LazyListState,
     frameListState: LazyListState,
+    printerReady: Boolean,
     onFilterSelected: (FilterType) -> Unit,
     onFrameSelected: (FrameType) -> Unit,
     onCustomFrameSelected: (String) -> Unit,
@@ -376,12 +388,23 @@ private fun PreviewLandscapeCompact(
                 .padding(end = 8.dp),
             contentAlignment = Alignment.Center
         ) {
-            ZinkActionButton(
-                icon               = Icons.Outlined.Print,
-                label              = stringResource(R.string.preview_print_button),
-                contentDescription = stringResource(R.string.preview_print_button),
-                onClick            = onPrint
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (!printerReady) {
+                    Text(
+                        text  = stringResource(R.string.preview_printer_not_connected),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+                }
+                ZinkActionButton(
+                    icon               = Icons.Outlined.Print,
+                    label              = stringResource(R.string.preview_print_button),
+                    contentDescription = stringResource(R.string.preview_print_button),
+                    onClick            = onPrint,
+                    enabled            = printerReady
+                )
+            }
         }
     }
 }
@@ -404,6 +427,7 @@ private fun PreviewLandscapeWide(
     widthClass: WindowWidthSizeClass,
     filterListState: LazyListState,
     frameListState: LazyListState,
+    printerReady: Boolean,
     onFilterSelected: (FilterType) -> Unit,
     onFrameSelected: (FrameType) -> Unit,
     onCustomFrameSelected: (String) -> Unit,
@@ -474,11 +498,20 @@ private fun PreviewLandscapeWide(
 
                 Spacer(modifier = Modifier.height(64.dp))
                 // Button centred, never fillMaxWidth
+                if (!printerReady) {
+                    Text(
+                        text  = stringResource(R.string.preview_printer_not_connected),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
                 ZinkActionButton(
                     icon               = Icons.Outlined.Print,
                     label              = stringResource(R.string.preview_print_button),
                     contentDescription = stringResource(R.string.preview_print_button),
-                    onClick            = onPrint
+                    onClick            = onPrint,
+                    enabled            = printerReady
                 )
             }
         }

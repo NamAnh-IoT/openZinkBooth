@@ -17,6 +17,7 @@
     <string name="preview_title">Vorschau</string>
     <string name="preview_open_photo_title">Foto öffnen</string>
     <string name="preview_print_button">Drucken</string>
+    <string name="preview_printer_not_connected">Drucker nicht verbunden</string>
     <string name="preview_filter_label">FILTER</string>
     <string name="preview_frame_label">RAHMEN</string>
     <string name="preview_close_description">Verwerfen</string>
