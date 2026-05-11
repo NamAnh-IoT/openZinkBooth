@@ -42,6 +42,24 @@ android {
                 storePassword = keystoreProperties.getProperty("releaseStorePassword")
             }
         }
+
+        create("oss") {
+            val keystorePropertiesFile = rootProject.file("../openZinkBooth_oss.keystore")
+            val keystoreProperties = Properties()
+
+            if (keystorePropertiesFile.exists()) {
+                keystorePropertiesFile.inputStream().use { input ->
+                    keystoreProperties.load(input)
+                }
+            }
+
+            if (keystoreProperties.isNotEmpty()) {
+                storeFile = file(rootDir.canonicalPath + "/" + keystoreProperties.getProperty("releaseKeyStore"))
+                keyAlias = keystoreProperties.getProperty("releaseKeyAlias")
+                keyPassword = keystoreProperties.getProperty("releaseKeyPassword")
+                storePassword = keystoreProperties.getProperty("releaseStorePassword")
+            }
+        }
     }
 
     buildTypes {
@@ -52,6 +70,17 @@ android {
                 "proguard-rules.pro"
             )
             signingConfig = signingConfigs.getByName("release")
+        }
+
+        create("oss") {
+            applicationIdSuffix = ".oss"
+            versionNameSuffix = "-oss"
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            signingConfig = signingConfigs.getByName("oss")
         }
     }
 
