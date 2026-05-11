@@ -374,77 +374,88 @@ class SprocketPrinter(private val context: Context) {
     //      ← CONN_SETUP_RSP  (printer reports its max receive size + security level)
     //   At this point the session is ready; status reads + print are allowed.
     // ---------------------------------------------------------------------------
+    // ---------------------------------------------------------------------------
+    // connect() — public entry point (fire-and-forget via scope.launch).
+    // Used by autoScan() and connectToDevice() which run in non-suspend context.
+    // ---------------------------------------------------------------------------
     private fun connect(peripheral: BluetoothPeripheral) {
         lastPeripheral = peripheral
         scope.launch {
-            _state.value = SprocketState.Connecting
             try {
-                centralManager.connectPeripheral(peripheral)
-                activePeripheral = peripheral
-
-                try {
-                    val negotiatedMtu = peripheral.requestMtu(REQUESTED_ATT_MTU)
-                    LogManager.d(TAG, "ATT MTU negotiated: $negotiatedMtu")
-                } catch (e: Exception) {
-                    LogManager.w(TAG, "requestMtu failed; continuing with default: ${e.message}")
-                }
-
-                val notifyChar = peripheral.getCharacteristic(SPROCKET_SERVICE_UUID, CHAR_NOTIFY_UUID)
-                if (notifyChar == null) {
-                    _state.value = SprocketState.Error("Notify characteristic not found")
-                    return@launch
-                }
-
-                peripheral.observe(notifyChar) { value ->
-                    onBleFrameReceived(value)
-                }
-
-                writeChar = peripheral.getCharacteristic(SPROCKET_SERVICE_UUID, CHAR_WRITE_UUID)
-                    ?: throw Exception("Write characteristic not found")
-
-                LogManager.d(TAG, "Write char props=${writeChar!!.properties}")
-
-                // --- Step 3: IF_CONFIG handshake ---
-                val ifConfigRsp = writeAndAwaitNotify(
-                    peripheral, writeChar!!, buildIfConfigReq(), "IF_CONFIG_REQ"
-                )
-                checkNotError(ifConfigRsp, "IF_CONFIG")
-                parseIfConfigRsp(ifConfigRsp)
-
-                // --- Step 4: CONN_SETUP ---
-                val connSetupRsp = writeAndAwaitNotify(
-                    peripheral, writeChar!!, buildConnSetupReq(), "CONN_SETUP_REQ"
-                )
-                checkNotError(connSetupRsp, "CONN_SETUP")
-                parseConnSetupRsp(connSetupRsp)
-
-                // Now announce Ready — BLE session is established.
-                _state.value = SprocketState.Ready(_detectedModel)
-                LogManager.d(TAG, "Session ready: model=${_detectedModel.name} " +
-                        "frameMtu=$bleFrameMtu msgSize=$targetMaxMessageSize ackPeriod=$upstreamAckPeriod")
-
-                // Start connection monitor: detects unexpected disconnects and
-                // attempts auto-reconnect up to 3 times before giving up.
-                startConnectionMonitor(peripheral)
-
-                // --- Step 5: Open BT Classic RFCOMM socket for settings + printing ---
-                // control.connect() loads identity and config internally.
-                // Runs on a background thread; errors are non-fatal (BLE still works).
-                try {
-                    val btDevice = android.bluetooth.BluetoothAdapter
-                        .getDefaultAdapter()
-                        ?.getRemoteDevice(peripheral.address)
-                        ?: throw Exception("BluetoothAdapter unavailable")
-                    control.connect(btDevice)
-                } catch (e: Exception) {
-                    LogManager.w(TAG, "SprocketRfcomm connect failed: ${e.message} " +
-                            "(settings + printing via BT Classic unavailable)")
-                }
-
+                connectSuspending(peripheral)
             } catch (e: Exception) {
                 LogManager.e(TAG, "Connection error: ${e.message}")
                 _state.value = SprocketState.Error(e.message ?: "Connection failed")
             }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // connectSuspending() — the real session setup logic.
+    //
+    // Unlike connect(), this is a true suspend function: it only returns once
+    // the session is fully Ready (or throws on failure). This makes it safe
+    // to call from handleUnexpectedDisconnect() where we need to know whether
+    // an attempt actually succeeded before moving on to the next one.
+    // ---------------------------------------------------------------------------
+    private suspend fun connectSuspending(peripheral: BluetoothPeripheral) {
+        _state.value = SprocketState.Connecting
+        centralManager.connectPeripheral(peripheral)
+        activePeripheral = peripheral
+
+        try {
+            val negotiatedMtu = peripheral.requestMtu(REQUESTED_ATT_MTU)
+            LogManager.d(TAG, "ATT MTU negotiated: $negotiatedMtu")
+        } catch (e: Exception) {
+            LogManager.w(TAG, "requestMtu failed; continuing with default: ${e.message}")
+        }
+
+        val notifyChar = peripheral.getCharacteristic(SPROCKET_SERVICE_UUID, CHAR_NOTIFY_UUID)
+            ?: throw Exception("Notify characteristic not found")
+
+        peripheral.observe(notifyChar) { value ->
+            onBleFrameReceived(value)
+        }
+
+        writeChar = peripheral.getCharacteristic(SPROCKET_SERVICE_UUID, CHAR_WRITE_UUID)
+            ?: throw Exception("Write characteristic not found")
+
+        LogManager.d(TAG, "Write char props=${writeChar!!.properties}")
+
+        // --- Step 3: IF_CONFIG handshake ---
+        val ifConfigRsp = writeAndAwaitNotify(
+            peripheral, writeChar!!, buildIfConfigReq(), "IF_CONFIG_REQ"
+        )
+        checkNotError(ifConfigRsp, "IF_CONFIG")
+        parseIfConfigRsp(ifConfigRsp)
+
+        // --- Step 4: CONN_SETUP ---
+        val connSetupRsp = writeAndAwaitNotify(
+            peripheral, writeChar!!, buildConnSetupReq(), "CONN_SETUP_REQ"
+        )
+        checkNotError(connSetupRsp, "CONN_SETUP")
+        parseConnSetupRsp(connSetupRsp)
+
+        // Session is fully established — announce Ready.
+        _state.value = SprocketState.Ready(_detectedModel)
+        LogManager.d(TAG, "Session ready: model=${_detectedModel.name} " +
+                "frameMtu=$bleFrameMtu msgSize=$targetMaxMessageSize ackPeriod=$upstreamAckPeriod")
+
+        // Start the connection monitor now that we are in Ready state.
+        startConnectionMonitor(peripheral)
+
+        // --- Step 5: Open BT Classic RFCOMM socket for settings + printing ---
+        // control.connect() loads identity and config internally.
+        // Runs on a background thread; errors are non-fatal (BLE still works).
+        try {
+            val btDevice = android.bluetooth.BluetoothAdapter
+                .getDefaultAdapter()
+                ?.getRemoteDevice(peripheral.address)
+                ?: throw Exception("BluetoothAdapter unavailable")
+            control.connect(btDevice)
+        } catch (e: Exception) {
+            LogManager.w(TAG, "SprocketRfcomm connect failed: ${e.message} " +
+                    "(settings + printing via BT Classic unavailable)")
         }
     }
 
@@ -476,9 +487,14 @@ class SprocketPrinter(private val context: Context) {
     // ---------------------------------------------------------------------------
 
     /**
-     * Polls the peripheral connection state. If an unexpected disconnect is
-     * detected, attempts to reconnect up to 3 times with exponential backoff
-     * (1s, 2s, 4s). After 3 failed attempts, transitions to Error state.
+     * Polls the peripheral connection state every 2 seconds.
+     *
+     * A single "not connected" poll is not enough to trigger reconnect —
+     * blessed-android's getConnectedPeripherals() can briefly return an empty
+     * list even when the connection is still alive (e.g. during an ATT
+     * transaction). We therefore require TWO consecutive polls that both
+     * report the peripheral as absent before treating it as a real disconnect.
+     * This avoids false-positive reconnect storms when the printer is just busy.
      *
      * Cancelled immediately when the user calls [disconnect] so intentional
      * disconnects do not trigger reconnect attempts.
@@ -486,22 +502,52 @@ class SprocketPrinter(private val context: Context) {
     private fun startConnectionMonitor(peripheral: BluetoothPeripheral) {
         connectionMonitorJob?.cancel()
         connectionMonitorJob = scope.launch {
-            // Poll every 2 seconds. Blessed-coroutines does not expose a
-            // disconnect callback on connectPeripheral() — the supervision
-            // timeout is 10-20s, so polling is the most reliable detection.
+            var missedPolls = 0  // consecutive polls that reported peripheral absent
+
             while (isActive) {
                 delay(2_000)
-                val state = centralManager.getConnectedPeripherals()
-                val stillConnected = state.any { it.address == peripheral.address }
-                if (!stillConnected && _state.value !is SprocketState.Disconnected) {
-                    LogManager.w(TAG, "Unexpected disconnect detected — attempting auto-reconnect")
-                    handleUnexpectedDisconnect()
-                    break
+
+                // Skip the check while a print is in progress — the RFCOMM
+                // channel keeps the link busy and the BLE peripheral list can
+                // transiently show the device as absent.
+                if (_state.value is SprocketState.Printing) {
+                    missedPolls = 0
+                    continue
+                }
+
+                val connected = centralManager.getConnectedPeripherals()
+                    .any { it.address == peripheral.address }
+
+                if (!connected && _state.value !is SprocketState.Disconnected) {
+                    missedPolls++
+                    LogManager.w(TAG, "Monitor: peripheral absent (poll $missedPolls/2)")
+                    if (missedPolls >= 2) {
+                        LogManager.w(TAG, "Unexpected disconnect confirmed — attempting auto-reconnect")
+                        handleUnexpectedDisconnect()
+                        break
+                    }
+                } else {
+                    // Reset counter as soon as the peripheral shows up again.
+                    if (missedPolls > 0) {
+                        LogManager.d(TAG, "Monitor: peripheral reappeared — resetting miss counter")
+                    }
+                    missedPolls = 0
                 }
             }
         }
     }
 
+    /**
+     * Called by the connection monitor after a confirmed unexpected disconnect.
+     *
+     * Cleans up the current session and attempts to reconnect up to 3 times
+     * using [connectSuspending] — a true suspend function that only returns
+     * once the session is fully Ready or throws on failure. This guarantees
+     * we actually wait for each attempt to complete before trying the next one,
+     * unlike the previous fire-and-forget connect() approach.
+     *
+     * Backoff: 1s, 2s, 4s between attempts.
+     */
     private suspend fun handleUnexpectedDisconnect() {
         val peripheral = lastPeripheral ?: run {
             LogManager.w(TAG, "No last peripheral — cannot reconnect")
@@ -509,27 +555,42 @@ class SprocketPrinter(private val context: Context) {
             return
         }
 
-        // Clean up current session state without clearing lastPeripheral.
+        // Cancel the monitor so it does not re-fire while we are reconnecting.
         connectionMonitorJob?.cancel()
+
+        // Clean up current session state without clearing lastPeripheral so
+        // subsequent attempts can still use it.
         activePeripheral = null
         writeChar = null
         rxBuffer.reset()
         rxPreviousSeq = 0
+        pendingNotify?.cancel()
+        pendingNotify = null
         control.disconnect()
 
-        // Attempt reconnect up to 3 times with exponential backoff.
-        var delayMs = 1_000L
-        repeat(3) { attempt ->
-            LogManager.d(TAG, "Reconnect attempt ${attempt + 1}/3")
-            _state.value = SprocketState.Connecting
+        // Attempt reconnect up to 3 times, waiting 1.5s between each attempt.
+        // connectSuspending() is a real suspend function — it only returns
+        // once Ready or throws, so we correctly wait for each attempt.
+        for (attempt in 1..3) {
+            LogManager.d(TAG, "Reconnect attempt $attempt/3")
             try {
-                connect(peripheral)
-                LogManager.d(TAG, "Reconnect successful")
+                connectSuspending(peripheral)
+                // connectSuspending() sets state to Ready internally and starts
+                // a new monitor, so we simply return here on success.
+                LogManager.d(TAG, "Reconnect successful on attempt $attempt")
                 return
             } catch (e: Exception) {
-                LogManager.w(TAG, "Reconnect attempt ${attempt + 1} failed: ${e.message}")
-                delay(delayMs)
-                delayMs *= 2
+                LogManager.w(TAG, "Reconnect attempt $attempt failed: ${e.message}")
+                // Clean up any partial state before the next attempt.
+                try { centralManager.cancelConnection(peripheral) } catch (_: Exception) {}
+                activePeripheral = null
+                writeChar = null
+                rxBuffer.reset()
+                rxPreviousSeq = 0
+                if (attempt < 3) {
+                    LogManager.d(TAG, "Waiting 1500ms before next attempt")
+                    delay(1_500)
+                }
             }
         }
 
