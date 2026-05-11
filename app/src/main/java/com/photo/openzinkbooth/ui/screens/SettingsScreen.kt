@@ -127,12 +127,20 @@ fun SettingsScreen(
                     checked  = state.useFrontCamera,
                     onToggle = onToggleFrontCamera
                 )
-                if (!state.useFrontCamera) {
+                // Flash: always show for back camera.
+                // For front camera only show on API 34+ (FLASH_MODE_SCREEN support).
+                val showFlashOption = !state.useFrontCamera ||
+                        android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+                if (showFlashOption) {
                     HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
                     SettingsToggleRow(
-                        icon = Icons.Outlined.FlashOn,
-                        label = stringResource(R.string.settings_flash),
-                        checked = state.flashEnabled,
+                        icon     = if (state.useFrontCamera) Icons.Outlined.WbSunny
+                        else                      Icons.Outlined.FlashOn,
+                        label    = stringResource(
+                            if (state.useFrontCamera) R.string.settings_flash_screen
+                            else                      R.string.settings_flash
+                        ),
+                        checked  = state.flashEnabled,
                         onToggle = onToggleFlash
                     )
                 }

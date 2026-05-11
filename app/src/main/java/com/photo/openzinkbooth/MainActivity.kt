@@ -37,6 +37,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Print
@@ -108,9 +109,9 @@ class MainActivity : ComponentActivity() {
         if(state.remoteShutterEnabled &&
             state.screen == Screen.CAMERA &&
             keyCode == state.remoteShutterKey.keyCode) {
-                viewModel.onRemoteShutterPressed()
-                return true
-            }
+            viewModel.onRemoteShutterPressed()
+            return true
+        }
         return super.onKeyDown(keyCode, event)
     }
 }
@@ -467,6 +468,17 @@ fun ZinkBoothApp(
             PaperEmptyModal(
                 onDismiss = viewModel::hidePaperModal,
                 onConfirm = viewModel::confirmPaperRefill
+            )
+        }
+
+        // Full-screen white overlay for front-camera screen flash (API 34+).
+        // Rendered on top of everything so the display acts as a flash light source.
+        // Driven by CameraHandle.screenFlashActive which is set by buildScreenFlash.
+        if (camera.screenFlashActive.value) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White)
             )
         }
     }

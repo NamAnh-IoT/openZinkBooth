@@ -41,6 +41,7 @@
     <string name="settings_group_camera">Camera</string>
     <string name="settings_front_camera">Front camera</string>
     <string name="settings_flash">Flash</string>
+    <string name="settings_flash_screen">Screen Flash</string>
     <string name="settings_group_appearance">Appearance</string>
     <string name="settings_dynamic_color">Dynamic Colors</string>
     <string name="settings_dynamic_color_summary">Adjusts app colors to wallpaper</string>

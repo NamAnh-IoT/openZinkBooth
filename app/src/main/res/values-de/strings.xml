@@ -40,6 +40,7 @@
     <string name="settings_group_camera">Kamera</string>
     <string name="settings_front_camera">Frontkamera</string>
     <string name="settings_flash">Blitz</string>
+    <string name="settings_flash_screen">Blitz-Screen</string>
     <string name="settings_group_appearance">Darstellung</string>
     <string name="settings_dynamic_color">Dynamische Farben</string>
     <string name="settings_dynamic_color_summary">Passt die App-Farben ans Hintergrundbild an</string>
