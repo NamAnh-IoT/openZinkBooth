@@ -300,13 +300,14 @@ fun ZinkBoothApp(
                         onPrinterReconnect  = viewModel::reconnectPrinter
                     )
                     PrintBar(
-                        visible  = state.printQueue.isNotEmpty(),
-                        icon     = Icons.Outlined.Print,
-                        jobLabel = if (state.printQueue.size == 1)
+                        visible      = state.printQueue.isNotEmpty(),
+                        icon         = Icons.Outlined.Print,
+                        jobLabel     = if (state.printQueue.size == 1)
                             stringResource(R.string.print_job_label_single)
                         else
                             stringResource(R.string.print_job_label_multi, state.printQueue.size),
-                        progress = state.currentPrintProgress / 100f
+                        progress     = state.currentPrintProgress / 100f,
+                        errorMessage = state.printError
                     )
 
                     if (!cameraPermissionGranted) {

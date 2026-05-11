@@ -19,6 +19,8 @@
 package com.photo.openzinkbooth.ui.components
 
 import androidx.activity.result.launch
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -57,14 +59,17 @@ import kotlinx.coroutines.launch
 @Composable
 fun PrintBar(
     visible: Boolean,
-    jobLabel: String,        // e.g. "Foto 1 von 3 wird gedruckt…"
-    icon : ImageVector,
+    jobLabel: String,            // e.g. "Foto 1 von 3 wird gedruckt…"
+    icon: ImageVector,
     printerName: String = "HP Sprocket 200",
-    progress: Float = 0f,    // 0..1, used to drive the bar fill fraction
+    progress: Float = 0f,        // 0..1, used to drive the bar fill fraction
+    errorMessage: String? = null, // non-null shows the error state instead of progress
     modifier: Modifier = Modifier
 ) {
+    val isError = errorMessage != null
+
     AnimatedVisibility(
-        visible = visible,
+        visible = visible || isError,
         enter   = slideInVertically(initialOffsetY = { -it }) +
                 fadeIn(animationSpec = tween(300)),
         exit    = slideOutVertically(targetOffsetY = { -it }) +
@@ -73,35 +78,44 @@ fun PrintBar(
             .padding(horizontal = 14.dp)
             .padding(bottom = 6.dp)
     ) {
+        // Border and background switch to error colours when a job fails.
+        val borderColor = if (isError) MaterialTheme.colorScheme.error
+        else         MaterialTheme.colorScheme.primary
+        val iconTint    = if (isError) MaterialTheme.colorScheme.error
+        else         MaterialTheme.colorScheme.primary
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
+                .border(1.dp, borderColor, RoundedCornerShape(12.dp))
                 .padding(horizontal = 12.dp, vertical = 7.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
-            // Top row: pulsing dot + job label + printer name
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                icon?.let {
-                    androidx.compose.material3.Icon(
-                        imageVector = it,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                androidx.compose.material3.Icon(
+                    imageVector        = if (isError) Icons.Outlined.ErrorOutline
+                    else         icon,
+                    contentDescription = null,
+                    tint               = iconTint,
+                    modifier           = Modifier.size(20.dp)
+                )
 
-                PulsingDot()
+                // Only show the pulsing dot while actively printing.
+                if (!isError) PulsingDot()
+
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text  = jobLabel,
+                        text  = if (isError) errorMessage!! else jobLabel,
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onBackground
+                        color = if (isError) MaterialTheme.colorScheme.error
+                        else         MaterialTheme.colorScheme.onBackground,
+                        maxLines = 2,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                     Text(
                         text  = printerName,
@@ -111,8 +125,10 @@ fun PrintBar(
                 }
             }
 
-            // Animated progress bar
-            PrintProgressBar(progress = progress)
+            // Show progress bar only while printing, not during error state.
+            if (!isError) {
+                PrintProgressBar(progress = progress)
+            }
         }
     }
 }
@@ -166,11 +182,11 @@ private fun PrintProgressBar(progress: Float) {
 @Composable
 fun ZinkActionButton(
     icon: ImageVector,
-     contentDescription: String?,
-     label: String? = null, // Neuer Parameter für die Beschriftung
-     onClick: () -> Unit,
-     modifier: Modifier = Modifier,
-     enabled: Boolean = true
+    contentDescription: String?,
+    label: String? = null, // Neuer Parameter für die Beschriftung
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()

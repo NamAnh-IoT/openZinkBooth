@@ -120,6 +120,9 @@ data class ZinkUiState(
     // ── Print ─────────────────────────────────────────────────────────────────
     val printQueue: List<PrintJob> = emptyList(),
     val currentPrintProgress: Int  = 0,   // 0–100
+    // Non-null while a print job error is being shown in the PrintBar.
+    // Auto-clears after 4s via ZinkBoothViewModel.startPrintQueueIfIdle().
+    val printError: String?        = null,
 
     // ── Printer connection ────────────────────────────────────────────────────
     val printerConnectionState: PrinterConnectionState = PrinterConnectionState.DISCONNECTED,

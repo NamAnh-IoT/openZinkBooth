@@ -423,13 +423,17 @@ class ZinkBoothViewModel(application: Application) : AndroidViewModel(applicatio
                     settings.decrementPaperCount()
                 } catch (e: Exception) {
                     // Job failed — remove it from the queue so a single broken
-                    // job cannot stall the remaining ones indefinitely, then
-                    // log the error. The printer SprocketState.Error is already
-                    // set by SprocketPrinter.print(); the UI reacts to that.
+                    // job cannot stall the remaining ones indefinitely.
                     LogManager.e("ViewModel", "Print job ${job.id} failed: ${e.message}")
-                    _state.update { it.copy(printQueue = it.printQueue.drop(1)) }
+                    _state.update { it.copy(
+                        printQueue = it.printQueue.drop(1),
+                        // Show the error message in the PrintBar for 4s, then auto-clear.
+                        printError = e.message ?: "Unknown error"
+                    ) }
+                    delay(4_000)
+                    _state.update { it.copy(printError = null) }
                     // Give the printer a moment to recover before the next job.
-                    delay(2_000)
+                    delay(1_000)
                 }
             }
             // All jobs done — reset progress indicator.
