@@ -458,7 +458,9 @@ class ZinkBoothViewModel(application: Application) : AndroidViewModel(applicatio
 
     /** True when Bluetooth is enabled on the device. */
     private fun isBluetoothEnabled(): Boolean =
-        android.bluetooth.BluetoothAdapter.getDefaultAdapter()?.isEnabled == true
+        getApplication<Application>()
+            .getSystemService(android.bluetooth.BluetoothManager::class.java)
+            ?.adapter?.isEnabled == true
 
     /**
      * Called from MainActivity after the BT permission request completes.

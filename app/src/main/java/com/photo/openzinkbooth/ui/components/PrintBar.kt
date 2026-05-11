@@ -18,7 +18,6 @@
 
 package com.photo.openzinkbooth.ui.components
 
-import androidx.activity.result.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.MaterialTheme
@@ -61,7 +60,7 @@ fun PrintBar(
     visible: Boolean,
     jobLabel: String,            // e.g. "Foto 1 von 3 wird gedruckt…"
     icon: ImageVector,
-    printerName: String = "HP Sprocket 200",
+    printerName: String = "",
     progress: Float = 0f,        // 0..1, used to drive the bar fill fraction
     errorMessage: String? = null, // non-null shows the error state instead of progress
     modifier: Modifier = Modifier

@@ -306,6 +306,7 @@ fun ZinkBoothApp(
                             stringResource(R.string.print_job_label_single)
                         else
                             stringResource(R.string.print_job_label_multi, state.printQueue.size),
+                        printerName  = state.printerModelName,
                         progress     = state.currentPrintProgress / 100f,
                         errorMessage = state.printError
                     )
