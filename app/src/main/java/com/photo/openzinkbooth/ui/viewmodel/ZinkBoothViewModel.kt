@@ -390,6 +390,7 @@ class ZinkBoothViewModel(application: Application) : AndroidViewModel(applicatio
         printQueueJob = viewModelScope.launch {
             while (_state.value.printQueue.isNotEmpty()) {
                 val job = _state.value.printQueue.first()
+
                 // If a pre-composited bitmap is available (set by enqueuePrintFromPreview),
                 // use it directly — it is already scaled to printer resolution and
                 // pixel-identical to what the user saw in the preview.
@@ -409,15 +410,29 @@ class ZinkBoothViewModel(application: Application) : AndroidViewModel(applicatio
                         applyFrameForPrint(filtered, job.frame, printW, printH)
                     }
                 }
-                if (_state.value.debugDryRun) {
-                    LogManager.d("ViewModel", "DRY RUN – rendering bitmap for preview, not sent to printer")
-                    printer.prepareImageForPreview(composited)
-                } else {
-                    printer.print(composited)
+
+                try {
+                    if (_state.value.debugDryRun) {
+                        LogManager.d("ViewModel", "DRY RUN – rendering bitmap for preview, not sent to printer")
+                        printer.prepareImageForPreview(composited)
+                    } else {
+                        printer.print(composited)
+                    }
+                    // Job succeeded — remove from queue and decrement paper count.
+                    _state.update { it.copy(printQueue = it.printQueue.drop(1)) }
+                    settings.decrementPaperCount()
+                } catch (e: Exception) {
+                    // Job failed — remove it from the queue so a single broken
+                    // job cannot stall the remaining ones indefinitely, then
+                    // log the error. The printer SprocketState.Error is already
+                    // set by SprocketPrinter.print(); the UI reacts to that.
+                    LogManager.e("ViewModel", "Print job ${job.id} failed: ${e.message}")
+                    _state.update { it.copy(printQueue = it.printQueue.drop(1)) }
+                    // Give the printer a moment to recover before the next job.
+                    delay(2_000)
                 }
-                _state.update { it.copy(printQueue = it.printQueue.drop(1)) }
-                settings.decrementPaperCount()
             }
+            // All jobs done — reset progress indicator.
             _state.update { it.copy(currentPrintProgress = 0) }
         }
     }

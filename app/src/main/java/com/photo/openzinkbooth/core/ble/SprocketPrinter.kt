@@ -448,10 +448,12 @@ class SprocketPrinter(private val context: Context) {
         // control.connect() loads identity and config internally.
         // Runs on a background thread; errors are non-fatal (BLE still works).
         try {
-            val btDevice = android.bluetooth.BluetoothAdapter
-                .getDefaultAdapter()
-                ?.getRemoteDevice(peripheral.address)
+            // BluetoothAdapter.getDefaultAdapter() is deprecated since API 31.
+            // Use BluetoothManager via context.getSystemService() instead.
+            val btAdapter = context.getSystemService(android.bluetooth.BluetoothManager::class.java)
+                ?.adapter
                 ?: throw Exception("BluetoothAdapter unavailable")
+            val btDevice = btAdapter.getRemoteDevice(peripheral.address)
             control.connect(btDevice)
         } catch (e: Exception) {
             LogManager.w(TAG, "SprocketRfcomm connect failed: ${e.message} " +
@@ -818,14 +820,18 @@ class SprocketPrinter(private val context: Context) {
             }
         }
 
+        // Always clear pendingNotify regardless of how the await ends so a
+        // stale deferred can never block the next command on any code path.
         return try {
             withTimeout(timeoutMs) { deferred.await() }
         } catch (e: TimeoutCancellationException) {
-            pendingNotify = null
             LogManager.e(TAG, "TIMEOUT on $label " +
                     "(txFrames=$txFrameCounter rxFrames=$rxFrameCounter " +
                     "rxAcks=$rxAckCounter rxBufferLen=${rxBuffer.size()})")
             throw Exception("Timeout awaiting response for $label")
+        } finally {
+            // Runs on every exit path: normal return, timeout, and cancellation.
+            if (pendingNotify === deferred) pendingNotify = null
         }
     }
 
