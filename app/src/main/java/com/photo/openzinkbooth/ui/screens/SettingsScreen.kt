@@ -127,13 +127,15 @@ fun SettingsScreen(
                     checked  = state.useFrontCamera,
                     onToggle = onToggleFrontCamera
                 )
-                HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
-                SettingsToggleRow(
-                    icon     = Icons.Outlined.FlashOn,
-                    label    = stringResource(R.string.settings_flash),
-                    checked  = state.flashEnabled,
-                    onToggle = onToggleFlash
-                )
+                if (!state.useFrontCamera) {
+                    HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+                    SettingsToggleRow(
+                        icon = Icons.Outlined.FlashOn,
+                        label = stringResource(R.string.settings_flash),
+                        checked = state.flashEnabled,
+                        onToggle = onToggleFlash
+                    )
+                }
                 HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
                 SettingsToggleRow(
                     icon     = Icons.Outlined.SettingsRemote,

@@ -103,7 +103,7 @@ fun TopBarStatus(
         Spacer(modifier = Modifier.weight(1f))
 
         // Flash indicator – shown whenever flash is enabled, regardless of connection
-        if (state.flashEnabled) {
+        if (state.flashEnabled && !state.useFrontCamera) {
             Surface(
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surfaceVariant,
