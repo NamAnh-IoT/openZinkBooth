@@ -1,6 +1,6 @@
 # ![openZinkBooth logo](https://github.com/oliexdev/openZinkBooth/blob/main/app/src/main/res/mipmap-mdpi/ic_launcher.png) openZinkBooth
 
-Bản Mod lại chỉ sử dụng BLE cho máy HP Sprocket 200 bị lỗi Classic Bluetooth
+# Bản Mod lại chỉ sử dụng BLE cho máy HP Sprocket 200 bị lỗi Classic Bluetooth
 
 > [!NOTE]
 > For the latest development state, install the latest [openZinkBooth dev](https://github.com/oliexdev/openZinkBooth/releases/tag/dev-build) build from the [GitHub release page](https://github.com/oliexdev/openZinkBooth/releases).
