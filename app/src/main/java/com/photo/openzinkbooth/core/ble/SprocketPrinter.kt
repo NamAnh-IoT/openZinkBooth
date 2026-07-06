@@ -162,6 +162,11 @@ private const val MAX_HOST_MESSAGE_SIZE = 4096
 private const val REQUESTED_ATT_MTU = 460
 private const val BLE_FRAME_MTU_CAP = 244
 
+// Set to true to restore the original dual-channel behaviour (BLE + BT Classic
+// RFCOMM). Left false because on some units/phones, opening the RFCOMM socket
+// causes the phone's Bluetooth stack to drop the active BLE connection.
+private const val BLE_CLASSIC_ENABLED = false
+
 private const val NOTIFY_TIMEOUT_MS = 10_000L
 private const val AUTO_SCAN_TIMEOUT_MS = 15_000L
 
@@ -227,12 +232,15 @@ class SprocketPrinter(private val context: Context) {
     private val _lastPrintBitmap = MutableStateFlow<Bitmap?>(null)
     val lastPrintBitmap: StateFlow<Bitmap?> = _lastPrintBitmap
 
-    // Bluetooth Classic RFCOMM socket — handles settings reads/writes and printing.
-    // Identity and config StateFlows are owned by the socket and automatically
-    // populated after connect. The UI should observe these directly.
+    // Bluetooth Classic RFCOMM socket. Only used when BLE_CLASSIC_ENABLED = true
+    // (see top of file); left disabled by default because on some units,
+    // opening it drops the concurrent BLE GATT connection. Identity and config
+    // are read over BLE instead — see refreshIdentity()/refreshConfig() below.
     val control = SprocketRfcomm(scope)
-    val identity: StateFlow<PrinterIdentity?> = control.identity
-    val config: StateFlow<PrinterConfig?> = control.config
+    private val _identity = MutableStateFlow<PrinterIdentity?>(null)
+    val identity: StateFlow<PrinterIdentity?> = _identity
+    private val _config = MutableStateFlow<PrinterConfig?>(null)
+    val config: StateFlow<PrinterConfig?> = _config
 
     private var activePeripheral: BluetoothPeripheral? = null
     private var _detectedModel: SprocketModel = SprocketModel.default()
@@ -444,20 +452,27 @@ class SprocketPrinter(private val context: Context) {
         // Start the connection monitor now that we are in Ready state.
         startConnectionMonitor(peripheral)
 
-        // --- Step 5: Open BT Classic RFCOMM socket for settings + printing ---
-        // control.connect() loads identity and config internally.
-        // Runs on a background thread; errors are non-fatal (BLE still works).
-        try {
-            // BluetoothAdapter.getDefaultAdapter() is deprecated since API 31.
-            // Use BluetoothManager via context.getSystemService() instead.
-            val btAdapter = context.getSystemService(android.bluetooth.BluetoothManager::class.java)
-                ?.adapter
-                ?: throw Exception("BluetoothAdapter unavailable")
-            val btDevice = btAdapter.getRemoteDevice(peripheral.address)
-            control.connect(btDevice)
-        } catch (e: Exception) {
-            LogManager.w(TAG, "SprocketRfcomm connect failed: ${e.message} " +
-                    "(settings + printing via BT Classic unavailable)")
+        // --- Step 5: BT Classic RFCOMM is intentionally SKIPPED. ---
+        // On this unit (firmware M2L1FS2229AR), attempting to open the RFCOMM
+        // socket does not just fail to read (read ret: -1) — the act of
+        // bonding/connecting Classic BT alongside an active BLE GATT link
+        // causes the phone's Bluetooth stack to drop the LE connection
+        // entirely a few seconds later ("Monitor: peripheral absent"),
+        // triggering a disconnect/reconnect loop that never settles.
+        // Printing runs exclusively over BLE GATT (see printOverBle()).
+        // Set BLE_CLASSIC_ENABLED = true below to restore the old dual-channel
+        // behaviour on printers/phones where BT Classic works fine.
+        if (BLE_CLASSIC_ENABLED) {
+            try {
+                val btAdapter = context.getSystemService(android.bluetooth.BluetoothManager::class.java)
+                    ?.adapter
+                    ?: throw Exception("BluetoothAdapter unavailable")
+                val btDevice = btAdapter.getRemoteDevice(peripheral.address)
+                control.connect(btDevice)
+            } catch (e: Exception) {
+                LogManager.w(TAG, "SprocketRfcomm connect failed: ${e.message} " +
+                        "(settings + printing via BT Classic unavailable)")
+            }
         }
     }
 
@@ -663,12 +678,25 @@ class SprocketPrinter(private val context: Context) {
                 LogManager.d(TAG, "HPLPP RX ← cmd=0x%02X len=${message.size}".format(cmd))
             }
 
-            val deferred = pendingNotify
-            pendingNotify = null
-            if (deferred != null) {
-                deferred.complete(message)
+            val cmd2 = cmd  // cmd already computed above for logging
+            if (cmd2 == 0x03) {
+                // Printer pushes this unsolicited (print progress) at any time,
+                // including while we're waiting on the response to an unrelated
+                // request. Never let it steal a pending request's deferred —
+                // that previously caused "Unexpected RD_STATUS_RSP: 03 ..."
+                // when a progress push arrived mid-status-poll.
+                LogManager.d(TAG, "Unsolicited push cmd=0x03 (print progress, ignored)")
             } else {
-                LogManager.w(TAG, "RX message arrived but no pending request — discarded")
+                val deferred = pendingNotify
+                pendingNotify = null
+                if (deferred != null) {
+                    deferred.complete(message)
+                } else if (cmd2 == 0x09) {
+                    // Status push with no pending request — also informational.
+                    LogManager.d(TAG, "Unsolicited push cmd=0x09 (status, ignored)")
+                } else {
+                    LogManager.w(TAG, "RX message arrived but no pending request — discarded")
+                }
             }
         } else {
             // Mid-message: send an ACK every upstreamAckPeriod-th frame.
@@ -722,17 +750,166 @@ class SprocketPrinter(private val context: Context) {
     }
 
     // ---------------------------------------------------------------------------
-    // Settings convenience wrappers — delegate to SprocketRfcomm
+    // Settings — Identity + Config read/write over BLE GATT.
+    //
+    // These mirror SprocketRfcomm's RD_SYS_ATT / RD_SYS_CFG / WR_SYS_CFG logic
+    // exactly, but run over the BLE channel so they work even with
+    // BLE_CLASSIC_ENABLED = false. Tag layouts per the HPLPP spec:
+    //   RD_SYS_ATT_RSP: [0x05][tag][...]... (strings are [len:1][utf8]) 
+    //   RD_SYS_CFG_RSP: [0x1B][tag][...]...
     // ---------------------------------------------------------------------------
 
-    /** Re-read identity from the printer and update the StateFlow. */
-    suspend fun refreshIdentity() = control.readIdentity()
+    private object AttrTag {
+        const val SOFTWARE_VERSION    = 0x01.toByte()
+        const val IMMUTABLE_NAME      = 0x03.toByte()
+        const val CUSTOM_NAME         = 0x04.toByte()
+        const val SERIAL_NUMBER       = 0x05.toByte()
+        const val DEVICE_ID           = 0x06.toByte()
+        const val FEATURE_SET_VERSION = 0x08.toByte()
+        const val DEVICE_SUPER_MODEL  = 0x09.toByte()
+        const val DEVICE_SUB_MODEL    = 0x0A.toByte()
+        const val BLUETOOTH_MAC       = 0x0B.toByte()
+        const val HARDWARE_VERSION    = 0x0C.toByte()
+        const val FIRST_PRINT         = 0x0E.toByte()
+    }
 
-    /** Re-read config from the printer and update the StateFlow. */
-    suspend fun refreshConfig() = control.readConfig()
+    private object CfgTag {
+        const val SLEEP_TIMER     = 0x01.toByte()
+        const val OFF_TIMER       = 0x02.toByte()
+        const val USER_COLOR      = 0x03.toByte()
+        const val PAUSE_PRINTING  = 0x04.toByte()
+        const val HOSTS_THRESHOLD = 0x05.toByte()
+    }
 
-    /** Write a partial config update and read back the confirmed new config. */
-    suspend fun applyConfig(config: PrinterConfig) = control.writeConfig(config)
+    /** Re-read identity from the printer over BLE and update the StateFlow. */
+    suspend fun refreshIdentity(): PrinterIdentity? {
+        val p = activePeripheral ?: return null
+        val w = writeChar ?: return null
+        return try {
+            val rsp = writeAndAwaitNotify(p, w, byteArrayOf(
+                0x04,
+                AttrTag.SOFTWARE_VERSION, AttrTag.SERIAL_NUMBER,
+                AttrTag.BLUETOOTH_MAC, AttrTag.HARDWARE_VERSION,
+                AttrTag.CUSTOM_NAME, AttrTag.IMMUTABLE_NAME,
+                AttrTag.FIRST_PRINT, AttrTag.DEVICE_SUPER_MODEL,
+                AttrTag.DEVICE_SUB_MODEL,
+            ), "RD_SYS_ATT_REQ (BLE)")
+            checkNotError(rsp, "RD_SYS_ATT")
+            check(rsp.isNotEmpty() && rsp[0] == 0x05.toByte()) {
+                "RD_SYS_ATT failed: cmd=0x%02X".format(rsp.firstOrNull() ?: 0)
+            }
+            parseIdentityBle(rsp).also { _identity.value = it }
+        } catch (e: Exception) {
+            LogManager.w(TAG, "refreshIdentity (BLE) failed: ${e.message}")
+            null
+        }
+    }
+
+    /** Re-read config from the printer over BLE and update the StateFlow. */
+    suspend fun refreshConfig(): PrinterConfig? {
+        val p = activePeripheral ?: return null
+        val w = writeChar ?: return null
+        return try {
+            val rsp = writeAndAwaitNotify(p, w, byteArrayOf(
+                0x1A,
+                CfgTag.SLEEP_TIMER, CfgTag.OFF_TIMER, CfgTag.USER_COLOR,
+                CfgTag.PAUSE_PRINTING, CfgTag.HOSTS_THRESHOLD,
+            ), "RD_SYS_CFG_REQ (BLE)")
+            checkNotError(rsp, "RD_SYS_CFG")
+            check(rsp.isNotEmpty() && rsp[0] == 0x1B.toByte()) {
+                "RD_SYS_CFG failed: cmd=0x%02X".format(rsp.firstOrNull() ?: 0)
+            }
+            parseConfigBle(rsp).also { _config.value = it }
+        } catch (e: Exception) {
+            LogManager.w(TAG, "refreshConfig (BLE) failed: ${e.message}")
+            null
+        }
+    }
+
+    /** Write a partial config update over BLE and read back the confirmed result. */
+    suspend fun applyConfig(newConfig: PrinterConfig): PrinterConfig? {
+        val p = activePeripheral ?: return null
+        val w = writeChar ?: return null
+        val out = ByteArrayOutputStream()
+        out.write(0x1C)
+        newConfig.sleepTimer?.let { out.write(CfgTag.SLEEP_TIMER.toInt()); out.write(it.minutes and 0xFF); out.write((it.minutes shr 8) and 0xFF) }
+        newConfig.autoOff?.let { out.write(CfgTag.OFF_TIMER.toInt()); out.write(it.minutes and 0xFF); out.write((it.minutes shr 8) and 0xFF) }
+        newConfig.userColor?.let { out.write(CfgTag.USER_COLOR.toInt()); out.write(it.r); out.write(it.g); out.write(it.b) }
+        newConfig.pausePrinting?.let { out.write(CfgTag.PAUSE_PRINTING.toInt()); out.write(if (it) 1 else 0) }
+
+        val rsp = writeAndAwaitNotify(p, w, out.toByteArray(), "WR_SYS_CFG_REQ (BLE)")
+        checkNotError(rsp, "WR_SYS_CFG")
+        check(rsp.isNotEmpty() && rsp[0] == 0x1D.toByte()) {
+            "WR_SYS_CFG failed: cmd=0x%02X".format(rsp.firstOrNull() ?: 0)
+        }
+        return refreshConfig()
+    }
+
+    private fun parseIdentityBle(msg: ByteArray): PrinterIdentity {
+        val bb = ByteBuffer.wrap(msg, 1, msg.size - 1).order(ByteOrder.LITTLE_ENDIAN)
+        var sw: String? = null; var sn: String? = null; var mac: String? = null
+        var hw: String? = null; var cn: String? = null; var inn: String? = null
+        var born: java.util.Date? = null; var sup: Int? = null; var sub: Int? = null
+
+        fun ByteBuffer.readPrefixedString(): String {
+            val len = get().toInt() and 0xFF
+            val bytes = ByteArray(len).also { get(it) }
+            return String(bytes, Charsets.UTF_8)
+        }
+
+        while (bb.remaining() > 0) {
+            val tag = bb.get()
+            try {
+                when (tag) {
+                    AttrTag.SOFTWARE_VERSION    -> sw  = bb.readPrefixedString()
+                    AttrTag.SERIAL_NUMBER       -> sn  = bb.readPrefixedString()
+                    AttrTag.HARDWARE_VERSION    -> hw  = bb.readPrefixedString()
+                    AttrTag.CUSTOM_NAME         -> cn  = bb.readPrefixedString()
+                    AttrTag.IMMUTABLE_NAME      -> inn = bb.readPrefixedString()
+                    AttrTag.DEVICE_ID           -> bb.readPrefixedString()
+                    AttrTag.FEATURE_SET_VERSION -> bb.readPrefixedString()
+                    AttrTag.DEVICE_SUPER_MODEL  -> sup = bb.short.toInt() and 0xFFFF
+                    AttrTag.DEVICE_SUB_MODEL    -> sub = bb.short.toInt() and 0xFFFF
+                    AttrTag.BLUETOOTH_MAC       -> {
+                        mac = ByteArray(6).also { bb.get(it) }
+                            .reversed().joinToString(":") { "%02X".format(it) }
+                    }
+                    AttrTag.FIRST_PRINT -> born = java.util.Date((bb.int.toLong() and 0xFFFFFFFFL) * 1000)
+                    else -> { LogManager.w(TAG, "Unknown sys-att tag 0x%02X (BLE)".format(tag)); break }
+                }
+            } catch (e: Exception) {
+                LogManager.w(TAG, "Parse error at sys-att tag 0x%02X (BLE): ${e.message}".format(tag)); break
+            }
+        }
+        return PrinterIdentity(sw, sn, mac, hw, cn, inn, born, sup, sub)
+    }
+
+    private fun parseConfigBle(msg: ByteArray): PrinterConfig {
+        val bb = ByteBuffer.wrap(msg, 1, msg.size - 1).order(ByteOrder.LITTLE_ENDIAN)
+        var sleepTimer: SleepTimer? = null
+        var autoOff: AutoOff? = null
+        var userColor: UserColor? = null
+        var pausePrinting: Boolean? = null
+        var hostsThreshold: Int? = null
+
+        while (bb.remaining() > 0) {
+            val tag = bb.get()
+            try {
+                when (tag) {
+                    CfgTag.SLEEP_TIMER     -> sleepTimer = SleepTimer.fromMinutes(bb.short.toInt() and 0xFFFF)
+                    CfgTag.OFF_TIMER       -> autoOff    = AutoOff.fromMinutes(bb.short.toInt() and 0xFFFF)
+                    CfgTag.USER_COLOR      -> userColor  = UserColor.closest(
+                        bb.get().toInt() and 0xFF, bb.get().toInt() and 0xFF, bb.get().toInt() and 0xFF)
+                    CfgTag.PAUSE_PRINTING  -> pausePrinting  = bb.get().toInt() != 0
+                    CfgTag.HOSTS_THRESHOLD -> hostsThreshold = bb.get().toInt() and 0xFF
+                    else -> { LogManager.w(TAG, "Unknown cfg tag 0x%02X (BLE)".format(tag)); break }
+                }
+            } catch (e: Exception) {
+                LogManager.w(TAG, "Parse error at cfg tag 0x%02X (BLE): ${e.message}".format(tag)); break
+            }
+        }
+        return PrinterConfig(sleepTimer, autoOff, userColor, pausePrinting, hostsThreshold)
+    }
 
     // ---------------------------------------------------------------------------
     // Print — delegates to SprocketRfcomm over Bluetooth Classic.
@@ -742,11 +919,6 @@ class SprocketPrinter(private val context: Context) {
     // The BLE GATT channel handles status polling.
     // ---------------------------------------------------------------------------
     suspend fun print(bitmap: Bitmap, color: UserColor = UserColor.GREEN) {
-        if (!control.isConnected) {
-            _state.value = SprocketState.Error("BT Classic socket not connected")
-            return
-        }
-
         _state.value = SprocketState.Printing(0)
         try {
             // Check printer status via BLE GATT before starting
@@ -761,9 +933,19 @@ class SprocketPrinter(private val context: Context) {
             LogManager.d(TAG, "Image prepared: ${jpeg.size} bytes " +
                     "(${_detectedModel.width}x${_detectedModel.height} @ q${_detectedModel.jpegQuality})")
 
-            // Delegate the actual print to SprocketRfcomm (RFCOMM)
-            control.print(jpeg, color) { progress ->
-                _state.value = SprocketState.Printing(progress)
+            if (BLE_CLASSIC_ENABLED && control.isConnected) {
+                // Preferred path when enabled: RFCOMM (faster, larger chunks)
+                control.print(jpeg, color) { progress ->
+                    _state.value = SprocketState.Printing(progress)
+                }
+            } else {
+                // BLE GATT print pipeline. Some units (e.g. firmware
+                // M2L1FS2229AR) have an unusable/interfering BT Classic side,
+                // so this is the default path — see BLE_CLASSIC_ENABLED above.
+                LogManager.d(TAG, "Printing over BLE GATT")
+                printOverBle(jpeg, color) { progress ->
+                    _state.value = SprocketState.Printing(progress)
+                }
             }
 
             LogManager.d(TAG, "Print complete!")
@@ -772,6 +954,94 @@ class SprocketPrinter(private val context: Context) {
         } catch (e: Exception) {
             LogManager.e(TAG, "Print error: ${e.message}", e)
             _state.value = SprocketState.Error(e.message ?: "Unknown error")
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // BLE print fallback — full HPLPP print pipeline over BLE GATT.
+    //
+    // Same command sequence as SprocketRfcomm.print(), but every FILE_WRITE
+    // message is sized to fit a single BLE frame ([header][cmd][handle][data]),
+    // so no multi-frame flow control is involved. The next chunk offset always
+    // comes from the printer-confirmed bytesReceived field.
+    // Verified end-to-end against a Sprocket 200 running firmware M2L1FS2229AR.
+    // ---------------------------------------------------------------------------
+    private suspend fun printOverBle(
+        jpeg: ByteArray,
+        color: UserColor,
+        onProgress: (Int) -> Unit
+    ) {
+        val p = activePeripheral ?: error("BLE peripheral not connected")
+        val w = writeChar ?: error("BLE write characteristic missing")
+
+        // 1) LIST_JOBS → current job id
+        val jobsRsp = writeAndAwaitNotify(p, w, byteArrayOf(0x2C), "LIST_JOBS_REQ (BLE)")
+        checkNotError(jobsRsp, "LIST_JOBS")
+        var jobId = if (jobsRsp.size >= 3)
+            ((jobsRsp[2].toInt() and 0xFF) shl 8) or (jobsRsp[1].toInt() and 0xFF) else 0
+
+        // 2) RD_JOB_PROP — mirrors the captured session; failure is non-fatal
+        runCatching {
+            writeAndAwaitNotify(p, w, byteArrayOf(
+                0x2E, (jobId and 0xFF).toByte(), ((jobId shr 8) and 0xFF).toByte(),
+                0x02, 0x04), "RD_JOB_PROP_REQ (BLE)")
+        }
+
+        // 3) PRINT_START: [0x0C][fileType=1 JPEG][fileSize:4LE]
+        val start = ByteBuffer.allocate(6).order(ByteOrder.LITTLE_ENDIAN)
+        start.put(0x0C.toByte()); start.put(0x01.toByte()); start.putInt(jpeg.size)
+        val startRsp = writeAndAwaitNotify(p, w, start.array(), "PRINT_START_REQ (BLE)")
+        checkNotError(startRsp, "PRINT_START")
+        check(startRsp.size >= 2 && startRsp[0] == 0x0D.toByte()) {
+            "Unexpected PRINT_START_RSP: ${startRsp.joinToString(" ") { "%02x".format(it) }}"
+        }
+        val handle = startRsp[1]
+        if (startRsp.size >= 4)
+            jobId = ((startRsp[3].toInt() and 0xFF) shl 8) or (startRsp[2].toInt() and 0xFF)
+        LogManager.d(TAG, "PRINT_START (BLE): handle=$handle jobId=$jobId")
+
+        // 4) WR_JOB_PROP: LED color + timestamp — failure is non-fatal
+        val ts = (System.currentTimeMillis() / 1000L).toInt()
+        val props = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN)
+        props.put(0x30.toByte())
+        props.putShort(jobId.toShort())
+        props.put(0x03.toByte()); props.put(0x01.toByte()); props.put(0x02.toByte())
+        props.put(color.toBytes())
+        props.put(0x04.toByte()); props.putInt(ts)
+        runCatching {
+            writeAndAwaitNotify(p, w,
+                props.array().copyOfRange(0, props.position()), "WR_JOB_PROP_REQ (BLE)")
+        }
+
+        // 5) FILE_WRITE loop — data per chunk keeps each message single-frame
+        val chunkSize = (bleFrameMtu - 3).coerceAtLeast(16)
+        var offset = 0
+        while (true) {
+            val end = minOf(offset + chunkSize, jpeg.size)
+            val msg = ByteArray(2 + (end - offset))
+            msg[0] = 0x0E; msg[1] = handle
+            System.arraycopy(jpeg, offset, msg, 2, end - offset)
+
+            val rsp = writeAndAwaitNotify(p, w, msg, "FILE_WRITE (BLE)", timeoutMs = 30_000)
+            checkNotError(rsp, "FILE_WRITE")
+            check(rsp.size >= 3 && rsp[0] == 0x0F.toByte()) {
+                "Unexpected FILE_WRITE_RSP: ${rsp.joinToString(" ") { "%02x".format(it) }}"
+            }
+            val status = rsp[2].toInt() and 0xFF
+            val received = if (rsp.size >= 7)
+                ((rsp[6].toInt() and 0xFF) shl 24) or ((rsp[5].toInt() and 0xFF) shl 16) or
+                ((rsp[4].toInt() and 0xFF) shl 8) or (rsp[3].toInt() and 0xFF)
+            else end
+            onProgress((received * 100 / jpeg.size).coerceIn(0, 100))
+
+            when (status) {
+                0x01 -> offset = received   // OK — continue from printer-confirmed offset
+                0x02 -> {                   // COMPLETE — printer starts printing
+                    LogManager.d(TAG, "BLE transfer complete ($received bytes) — printing")
+                    return
+                }
+                else -> error("FILE_WRITE failed over BLE: status=$status")
+            }
         }
     }
 
